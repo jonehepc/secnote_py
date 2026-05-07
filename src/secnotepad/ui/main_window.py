@@ -1,9 +1,12 @@
-"""SecNotepad 主窗口 (D-12 至 D-20)"""
+"""SecNotepad 主窗口 (D-12 至 D-20, Phase 2 文件操作 + 加密集成)"""
 
-from PySide6.QtGui import QAction, QKeySequence
+import os
+
+from PySide6.QtGui import QAction, QKeySequence, QCloseEvent
 from PySide6.QtWidgets import (QMainWindow, QWidget, QSplitter,
                                 QTreeView, QListView, QStackedWidget,
-                                QStyle, QVBoxLayout)
+                                QStyle, QVBoxLayout, QMessageBox,
+                                QFileDialog)
 from PySide6.QtCore import Qt
 
 from ..model.snote_item import SNoteItem
@@ -22,6 +25,11 @@ class MainWindow(QMainWindow):
         # 当前笔记本数据 (Phase 2 后持久化)
         self._root_item: SNoteItem = None
         self._tree_model: TreeModel = None
+
+        # ── 文件操作状态 (Phase 2) ──
+        self._is_dirty: bool = False
+        self._current_path: str = ""        # 当前文件路径，空=未保存
+        self._current_password: str = ""    # 当前会话密码
 
         self._setup_window()
         self._setup_menu_bar()
@@ -159,7 +167,75 @@ class MainWindow(QMainWindow):
         """设置状态栏 (D-18)"""
         self.statusBar().showMessage("就绪")
 
-    # ── 动作处理 ──
+    # ── 窗口事件 ──
+
+    def closeEvent(self, event: QCloseEvent):
+        """关闭窗口时检查未保存更改 (D-46)。
+
+        同时处理 X 按钮关闭和 File→退出菜单 (D-46)。
+        空的未保存新建笔记本不提示 (D-47)。
+        """
+        if self._is_dirty and self._root_item is not None:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("未保存的更改")
+            msg_box.setText("笔记本有未保存的更改。是否在关闭前保存？")
+            msg_box.setIcon(QMessageBox.Question)
+            btn_save = msg_box.addButton("保存(&S)", QMessageBox.AcceptRole)
+            btn_discard = msg_box.addButton("不保存(&D)", QMessageBox.DestructiveRole)
+            btn_cancel = msg_box.addButton("取消(&C)", QMessageBox.RejectRole)
+            msg_box.setDefaultButton(btn_save)
+            msg_box.exec()
+
+            clicked = msg_box.clickedButton()
+            if clicked == btn_save:
+                event.ignore()
+                self._on_save()
+                # 保存成功后关闭
+                if not self._is_dirty:
+                    event.accept()
+                # 如果保存取消（用户取消了另存为对话框），不关闭
+            elif clicked == btn_discard:
+                self._clear_session()
+                event.accept()
+            else:  # cancel
+                event.ignore()
+        else:
+            self._clear_session()
+            event.accept()
+
+    def _clear_session(self):
+        """清理当前会话的所有敏感数据。"""
+        self._current_password = ""
+        self._is_dirty = False
+        self._current_path = ""
+
+    # ── 脏标志管理 (D-45) ──
+
+    def mark_dirty(self):
+        """标记笔记本已修改。Phase 3（结构编辑）和 Phase 4（文本编辑）调用此方法。"""
+        if not self._is_dirty and self._root_item is not None:
+            self._is_dirty = True
+            self._update_window_title()
+
+    def mark_clean(self):
+        """标记笔记本为已保存状态。"""
+        if self._is_dirty:
+            self._is_dirty = False
+            self._update_window_title()
+
+    # ── 窗口标题管理 ──
+
+    def _update_window_title(self):
+        """根据当前文件路径和脏状态更新窗口标题 (UI-06)。"""
+        if self._current_path:
+            filename = os.path.basename(self._current_path)
+            base = f"{filename} - SecNotepad"
+        else:
+            base = "SecNotepad"
+        if self._is_dirty:
+            self.setWindowTitle(f"{base} *")
+        else:
+            self.setWindowTitle(base)
 
     # ── 动作连接 ──
 
@@ -183,6 +259,16 @@ class MainWindow(QMainWindow):
         self._tree_model = TreeModel(self._root_item, self)
         self._tree_view.setModel(self._tree_model)
         self._stack.setCurrentIndex(1)               # 切换到三栏布局
+
+        # Phase 2: 启用保存/另存为 (D-47: 新建笔记本不脏)
+        self._is_dirty = False
+        self._current_path = ""
+        self._current_password = ""
+        self._act_save.setEnabled(True)
+        self._tb_save.setEnabled(True)
+        self._act_save_as.setEnabled(True)
+        self._tb_saveas.setEnabled(True)
+        self._update_window_title()
         self.statusBar().showMessage("新建笔记本 - 未保存")
 
     def _on_open_notebook(self):
