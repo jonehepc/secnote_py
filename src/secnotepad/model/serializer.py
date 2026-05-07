@@ -47,6 +47,12 @@ class Serializer:
             raise ValueError(f"Invalid JSON: {e}") from e
         if not isinstance(document, dict):
             raise ValueError("JSON root must be an object")
+        version = document.get("version", 1)
+        if version > Serializer.FORMAT_VERSION:
+            raise ValueError(
+                f"Unsupported format version {version}; "
+                f"expected <= {Serializer.FORMAT_VERSION}"
+            )
         if "data" not in document:
             raise ValueError("Missing required 'data' field")
         data = document["data"]
