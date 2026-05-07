@@ -1,14 +1,20 @@
-"""SecNotepad 主窗口 (D-12 至 D-20)"""
+"""SecNotepad 主窗口 (D-12 至 D-20, Phase 2 文件操作 + 加密集成)"""
 
-from PySide6.QtGui import QAction, QKeySequence
+import os
+
+from PySide6.QtGui import QAction, QKeySequence, QCloseEvent
 from PySide6.QtWidgets import (QMainWindow, QWidget, QSplitter,
                                 QTreeView, QListView, QStackedWidget,
-                                QStyle, QVBoxLayout)
+                                QStyle, QVBoxLayout, QMessageBox,
+                                QFileDialog, QDialog)
 from PySide6.QtCore import Qt
 
 from ..model.snote_item import SNoteItem
 from ..model.tree_model import TreeModel
 from .welcome_widget import WelcomeWidget
+from ..crypto.file_service import FileService
+from ..model.serializer import Serializer
+from .password_dialog import PasswordDialog, PasswordMode
 
 
 class MainWindow(QMainWindow):
@@ -22,6 +28,11 @@ class MainWindow(QMainWindow):
         # 当前笔记本数据 (Phase 2 后持久化)
         self._root_item: SNoteItem = None
         self._tree_model: TreeModel = None
+
+        # ── 文件操作状态 (Phase 2) ──
+        self._is_dirty: bool = False
+        self._current_path: str = ""        # 当前文件路径，空=未保存
+        self._current_password: str = ""    # 当前会话密码
 
         self._setup_window()
         self._setup_menu_bar()
@@ -129,6 +140,7 @@ class MainWindow(QMainWindow):
         self._welcome = WelcomeWidget()
         self._welcome.new_notebook_clicked.connect(self._on_new_notebook)
         self._welcome.open_notebook_clicked.connect(self._on_open_notebook)
+        self._welcome.recent_file_clicked.connect(self._on_open_recent)
 
         # 三栏布局 (D-12, D-13)
         splitter = QSplitter(Qt.Horizontal)
@@ -159,7 +171,75 @@ class MainWindow(QMainWindow):
         """设置状态栏 (D-18)"""
         self.statusBar().showMessage("就绪")
 
-    # ── 动作处理 ──
+    # ── 窗口事件 ──
+
+    def closeEvent(self, event: QCloseEvent):
+        """关闭窗口时检查未保存更改 (D-46)。
+
+        同时处理 X 按钮关闭和 File→退出菜单 (D-46)。
+        空的未保存新建笔记本不提示 (D-47)。
+        """
+        if self._is_dirty and self._root_item is not None:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("未保存的更改")
+            msg_box.setText("笔记本有未保存的更改。是否在关闭前保存？")
+            msg_box.setIcon(QMessageBox.Question)
+            btn_save = msg_box.addButton("保存(&S)", QMessageBox.AcceptRole)
+            btn_discard = msg_box.addButton("不保存(&D)", QMessageBox.DestructiveRole)
+            btn_cancel = msg_box.addButton("取消(&C)", QMessageBox.RejectRole)
+            msg_box.setDefaultButton(btn_save)
+            msg_box.exec()
+
+            clicked = msg_box.clickedButton()
+            if clicked == btn_save:
+                event.ignore()
+                self._on_save()
+                # 保存成功后关闭
+                if not self._is_dirty:
+                    event.accept()
+                # 如果保存取消（用户取消了另存为对话框），不关闭
+            elif clicked == btn_discard:
+                self._clear_session()
+                event.accept()
+            else:  # cancel
+                event.ignore()
+        else:
+            self._clear_session()
+            event.accept()
+
+    def _clear_session(self):
+        """清理当前会话的所有敏感数据。"""
+        self._current_password = ""
+        self._is_dirty = False
+        self._current_path = ""
+
+    # ── 脏标志管理 (D-45) ──
+
+    def mark_dirty(self):
+        """标记笔记本已修改。Phase 3（结构编辑）和 Phase 4（文本编辑）调用此方法。"""
+        if not self._is_dirty and self._root_item is not None:
+            self._is_dirty = True
+            self._update_window_title()
+
+    def mark_clean(self):
+        """标记笔记本为已保存状态。"""
+        if self._is_dirty:
+            self._is_dirty = False
+            self._update_window_title()
+
+    # ── 窗口标题管理 ──
+
+    def _update_window_title(self):
+        """根据当前文件路径和脏状态更新窗口标题 (UI-06)。"""
+        if self._current_path:
+            filename = os.path.basename(self._current_path)
+            base = f"{filename} - SecNotepad"
+        else:
+            base = "SecNotepad"
+        if self._is_dirty:
+            self.setWindowTitle(f"{base} *")
+        else:
+            self.setWindowTitle(base)
 
     # ── 动作连接 ──
 
@@ -168,9 +248,15 @@ class MainWindow(QMainWindow):
         # 新建：菜单、工具栏、欢迎页按钮均已连接
         self._act_new.triggered.connect(self._on_new_notebook)
         self._tb_new.triggered.connect(self._on_new_notebook)
-        # 打开（Phase 2 实现）
+
         self._act_open.triggered.connect(self._on_open_notebook)
         self._tb_open.triggered.connect(self._on_open_notebook)
+
+        # Phase 2: 连接保存/另存为
+        self._act_save.triggered.connect(self._on_save)
+        self._tb_save.triggered.connect(self._on_save)
+        self._act_save_as.triggered.connect(self._on_save_as)
+        self._tb_saveas.triggered.connect(self._on_save_as)
 
     def _on_new_notebook(self):
         """新建空白笔记本 (D-14)"""
@@ -183,8 +269,237 @@ class MainWindow(QMainWindow):
         self._tree_model = TreeModel(self._root_item, self)
         self._tree_view.setModel(self._tree_model)
         self._stack.setCurrentIndex(1)               # 切换到三栏布局
+
+        # Phase 2: 启用保存/另存为 (D-47: 新建笔记本不脏)
+        self._is_dirty = False
+        self._current_path = ""
+        self._current_password = ""
+        self._act_save.setEnabled(True)
+        self._tb_save.setEnabled(True)
+        self._act_save_as.setEnabled(True)
+        self._tb_saveas.setEnabled(True)
+        self._update_window_title()
         self.statusBar().showMessage("新建笔记本 - 未保存")
 
+        # 新建后更新欢迎页的最近文件（不影响当前显示，但切换回欢迎页时正确）
+        recent = self._load_recent_files()
+        self._welcome.set_recent_files(recent)
+
     def _on_open_notebook(self):
-        """打开笔记本 (Phase 2 实现)"""
-        self.statusBar().showMessage("打开笔记本 - 功能待实现")
+        """打开 .secnote 文件 → 输入密码 → 解密 → 加载到编辑器 (FILE-02)。
+
+        密码错误时在对话框内显示错误提示并允许重试 (D-35)。
+        """
+        path, _ = QFileDialog.getOpenFileName(
+            self, "打开加密笔记本", "",
+            "SecNotepad 加密笔记本 (*.secnote)",
+        )
+        if not path:
+            return
+
+        # 密码对话框（循环重试：密码错误时不关闭对话框，仅显示错误提示）
+        dialog = PasswordDialog(mode=PasswordMode.ENTER_PASSWORD, parent=self)
+        while dialog.exec() == QDialog.Accepted:
+            password = dialog.password()
+            dialog.clear_password()
+
+            try:
+                json_str = FileService.open(path, password)
+            except ValueError:
+                # D-35: 在对话框内显示错误提示，不关闭对话框，允许重试
+                dialog.set_error_message("密码错误，请重试")
+                continue  # 重新显示对话框（exec() 循环）
+
+            # 密码正确 —— 加载数据
+            password_correct = password  # 保存密码供会话使用
+            break
+        else:
+            # 用户取消了对话框
+            return
+
+        # 更新数据模型
+        root = Serializer.from_json(json_str)
+        if self._tree_model is not None:
+            self._tree_model.deleteLater()
+        self._root_item = root
+        self._tree_model = TreeModel(self._root_item, self)
+        self._tree_view.setModel(self._tree_model)
+
+        # 更新状态
+        self._current_path = path
+        self._current_password = password_correct
+        self._is_dirty = False
+        self._act_save.setEnabled(True)
+        self._tb_save.setEnabled(True)
+        self._act_save_as.setEnabled(True)
+        self._tb_saveas.setEnabled(True)
+
+        self._stack.setCurrentIndex(1)
+        self._update_window_title()
+        self.statusBar().showMessage(f"已打开《{os.path.basename(path)}》")
+
+        # 添加到最近文件 (D-44)
+        self._add_recent_file(path)
+
+    # ── 保存/另存为 ──
+
+    def _on_save(self):
+        """保存笔记本 — 有路径则直接保存，无路径则触发另存为 (FILE-03)。"""
+        if self._root_item is None:
+            return
+
+        if self._current_path:
+            # 直接保存到现有文件
+            json_str = Serializer.to_json(self._root_item)
+            FileService.save(json_str, self._current_path, self._current_password)
+            self._is_dirty = False
+            self._update_window_title()
+            self.statusBar().showMessage("笔记本已保存")
+        else:
+            # 无路径 → 触发另存为
+            self._on_save_as()
+
+    def _on_save_as(self):
+        """另存为 — 选择路径 → 可选换密码 → 加密写入 (FILE-04)。"""
+        if self._root_item is None:
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "保存加密笔记本", "",
+            "SecNotepad 加密笔记本 (*.secnote)",
+        )
+        if not path:
+            return
+
+        # 密码对话框（CHANGE_PASSWORD 模式：默认不换密码）
+        dialog = PasswordDialog(mode=PasswordMode.CHANGE_PASSWORD, parent=self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        new_password = dialog.password()
+        dialog.clear_password()
+
+        # 如果对话框返回空密码，使用当前密码
+        if not new_password:
+            new_password = self._current_password or ""
+
+        # 如果当前无密码且用户没输入新密码，要求设置密码
+        if not new_password:
+            set_dialog = PasswordDialog(mode=PasswordMode.SET_PASSWORD, parent=self)
+            if set_dialog.exec() != QDialog.Accepted:
+                return
+            new_password = set_dialog.password()
+            set_dialog.clear_password()
+
+        json_str = Serializer.to_json(self._root_item)
+        FileService.save_as(json_str, path, new_password)
+
+        # 更新状态
+        self._current_path = path
+        self._current_password = new_password
+        self._is_dirty = False
+        self._update_window_title()
+        self.statusBar().showMessage("笔记本已另存为")
+
+        # 添加到最近文件 (D-44)
+        self._add_recent_file(path)
+
+    # ── 最近文件管理 (D-40~D-44) ──
+
+    MAX_RECENT_FILES = 5
+    SETTINGS_KEY = "recent_files"
+
+    def _load_recent_files(self) -> list[str]:
+        """从 QSettings 加载最近文件列表，过滤不存在的文件 (D-42)。"""
+        from PySide6.QtCore import QSettings
+        settings = QSettings()
+        paths = settings.value(self.SETTINGS_KEY, [])
+        if paths is None:
+            return []
+        # 过滤不存在的文件 (D-42)
+        valid = [p for p in paths if isinstance(p, str) and os.path.isfile(p)]
+        # 如有移除，回写更新
+        if len(valid) < len(paths):
+            settings.setValue(self.SETTINGS_KEY, valid)
+        return valid
+
+    def _add_recent_file(self, path: str):
+        """添加文件到最近列表，去重并限制数量 (D-40, D-44)。"""
+        from PySide6.QtCore import QSettings
+        settings = QSettings()
+        paths = settings.value(self.SETTINGS_KEY, [])
+        if paths is None:
+            paths = []
+        # 去重: 移到顶部 (D-44)
+        path = os.path.abspath(path)
+        if path in paths:
+            paths.remove(path)
+        paths.insert(0, path)
+        # 限制数量 (D-40)
+        paths = paths[:self.MAX_RECENT_FILES]
+        settings.setValue(self.SETTINGS_KEY, paths)
+
+        # 更新欢迎页显示
+        self._welcome.set_recent_files(paths)
+
+    def _remove_recent_file(self, path: str):
+        """从最近列表中移除指定路径。"""
+        from PySide6.QtCore import QSettings
+        settings = QSettings()
+        paths = settings.value(self.SETTINGS_KEY, [])
+        if paths is None:
+            return
+        path = os.path.abspath(path)
+        if path in paths:
+            paths.remove(path)
+        settings.setValue(self.SETTINGS_KEY, paths)
+        self._welcome.set_recent_files(paths)
+
+    # ── 最近文件点击 ──
+
+    def _on_open_recent(self, path: str):
+        """单击最近文件 → 触发打开流程 (D-43)。
+
+        密码错误时在对话框内显示错误提示并允许重试 (D-35)。
+        """
+        if not os.path.isfile(path):
+            # 文件已不存在，从最近列表中移除
+            self._remove_recent_file(path)
+            return
+
+        # 复用打开流程的密码重试循环
+        dialog = PasswordDialog(mode=PasswordMode.ENTER_PASSWORD, parent=self)
+        while dialog.exec() == QDialog.Accepted:
+            password = dialog.password()
+            dialog.clear_password()
+
+            try:
+                json_str = FileService.open(path, password)
+            except ValueError:
+                dialog.set_error_message("密码错误，请重试")
+                continue  # 保持在对话框内重试
+
+            password_correct = password
+            break
+        else:
+            return  # 用户取消了对话框
+
+        root = Serializer.from_json(json_str)
+        if self._tree_model is not None:
+            self._tree_model.deleteLater()
+        self._root_item = root
+        self._tree_model = TreeModel(self._root_item, self)
+        self._tree_view.setModel(self._tree_model)
+
+        self._current_path = path
+        self._current_password = password_correct
+        self._is_dirty = False
+        self._act_save.setEnabled(True)
+        self._tb_save.setEnabled(True)
+        self._act_save_as.setEnabled(True)
+        self._tb_saveas.setEnabled(True)
+
+        self._stack.setCurrentIndex(1)
+        self._update_window_title()
+        self.statusBar().showMessage(f"已打开《{os.path.basename(path)}》")
+        # 更新最近文件顺序
+        self._add_recent_file(path)
