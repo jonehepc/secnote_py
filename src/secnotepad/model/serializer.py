@@ -36,10 +36,23 @@ class Serializer:
 
     @staticmethod
     def from_json(json_str: str) -> SNoteItem:
-        """JSON 字符串 → SNoteItem 树。"""
-        document = json.loads(json_str)
-        # version 字段保留，未来可用于格式升级检测
+        """JSON 字符串 → SNoteItem 树。
+
+        Raises:
+            ValueError: 如果 JSON 格式无效、缺少必填字段或版本不兼容。
+        """
+        try:
+            document = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON: {e}") from e
+        if not isinstance(document, dict):
+            raise ValueError("JSON root must be an object")
+        if "data" not in document:
+            raise ValueError("Missing required 'data' field")
         data = document["data"]
+        for key in ("id", "title", "item_type"):
+            if key not in data:
+                raise ValueError(f"Missing required field '{key}' in SNoteItem data")
         return Serializer._from_dict(data)
 
     @staticmethod
