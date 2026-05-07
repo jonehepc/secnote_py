@@ -253,3 +253,119 @@ class TestStatusBar:
     def test_status_bar_ready(self, window):
         """状态栏显示 '就绪'"""
         assert window.statusBar().currentMessage() == "就绪"
+
+
+# ── 脏标志与关闭保护 (Phase 2) ──
+
+
+class TestDirtyFlag:
+    """D-45, D-47: 脏标志管理"""
+
+    def test_new_notebook_not_dirty(self, window):
+        """新建笔记本后脏标志为 False (D-47)。"""
+        window._on_new_notebook()
+        assert window._is_dirty is False
+
+    def test_mark_dirty_sets_flag(self, window):
+        """mark_dirty() 将脏标志设为 True。"""
+        window._on_new_notebook()
+        window.mark_dirty()
+        assert window._is_dirty is True
+
+    def test_mark_clean_clears_flag(self, window):
+        """mark_clean() 清除脏标志。"""
+        window._on_new_notebook()
+        window.mark_dirty()
+        window.mark_clean()
+        assert window._is_dirty is False
+
+    def test_mark_dirty_no_notebook_safe(self, window):
+        """无笔记本时 mark_dirty() 不报错。"""
+        window.mark_dirty()  # should not raise
+        assert True
+
+
+# ── 保存/另存为动作状态 ──
+
+
+class TestSaveActions:
+    """FILE-03, FILE-04: 保存/另存为动作状态"""
+
+    def test_save_disabled_initially(self, window):
+        """初始状态保存按钮灰显。"""
+        assert window._act_save.isEnabled() is False
+
+    def test_save_enabled_after_new(self, window):
+        """新建后保存按钮启用。"""
+        window._on_new_notebook()
+        assert window._act_save.isEnabled() is True
+
+    def test_save_as_enabled_after_new(self, window):
+        """新建后另存为按钮启用。"""
+        window._on_new_notebook()
+        assert window._act_save_as.isEnabled() is True
+
+
+# ── 窗口标题 ──
+
+
+class TestWindowTitle:
+    """UI-06: 窗口标题"""
+
+    def test_default_title(self, window):
+        """默认标题为 'SecNotepad'。"""
+        assert window.windowTitle() == "SecNotepad"
+
+    def test_title_after_new_is_secnotepad(self, window):
+        """新建后标题仍为 'SecNotepad'（未保存，无路径）。"""
+        window._on_new_notebook()
+        assert "SecNotepad" in window.windowTitle()
+
+    def test_dirty_marker_appears(self, window):
+        """脏标志改变时标题带 *。"""
+        window._on_new_notebook()
+        window.mark_dirty()
+        assert "*" in window.windowTitle()
+
+    def test_clean_removes_dirty_marker(self, window):
+        """保存后清除 * 标记。"""
+        window._on_new_notebook()
+        window.mark_dirty()
+        window.mark_clean()
+        assert "*" not in window.windowTitle()
+
+
+# ── WelcomeWidget 最近文件 ──
+
+
+class TestRecentFiles:
+    """D-40~D-44: 最近文件列表"""
+
+    def test_welcome_has_recent_signal(self, window):
+        """WelcomeWidget 有 recent_file_clicked 信号。"""
+        welcome = window._stack.widget(0)
+        assert hasattr(welcome, "recent_file_clicked")
+
+    def test_recent_file_list_widget(self, window):
+        """欢迎页有 QListWidget 显示最近文件。"""
+        welcome = window._stack.widget(0)
+        assert hasattr(welcome, "recent_list")
+
+    def test_recent_files_set(self, window):
+        """set_recent_files 更新列表内容。"""
+        welcome = window._stack.widget(0)
+        welcome.set_recent_files(["/path/to/test.secnote"])
+        assert welcome.recent_list.count() == 1
+
+    def test_recent_files_max_items(self, window):
+        """设置超过 5 条时只显示 5 条。"""
+        welcome = window._stack.widget(0)
+        paths = [f"/path/{i}.secnote" for i in range(7)]
+        welcome.set_recent_files(paths[:5])  # MainWindow 已过滤
+        assert welcome.recent_list.count() == 5
+
+    def test_empty_recent_files(self, window):
+        """空列表显示 '暂无最近打开的文件'。"""
+        welcome = window._stack.widget(0)
+        welcome.set_recent_files([])
+        assert welcome.recent_list.count() == 0

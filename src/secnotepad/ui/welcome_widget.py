@@ -1,19 +1,17 @@
-"""欢迎页组件 (D-15)"""
+"""欢迎页组件 (D-15) — 含最近文件列表 (Phase 2)"""
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel,
-                                QPushButton)
+                                QPushButton, QListWidget)
+from PySide6.QtCore import Qt
 
 
 class WelcomeWidget(QWidget):
-    """笔记本应用的欢迎页面
-
-    提供应用名称、简介、新建/打开按钮和最近文件预留区域。
-    按钮点击通过信号通知 MainWindow。
-    """
+    """笔记本应用的欢迎页面"""
 
     new_notebook_clicked = Signal()
     open_notebook_clicked = Signal()
+    recent_file_clicked = Signal(str)  # Phase 2: 单击最近文件 (D-43)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -52,10 +50,53 @@ class WelcomeWidget(QWidget):
 
         layout.addSpacing(30)
 
-        # 最近文件列表占位区域（后续 Phase 实现）
-        layout.addWidget(QLabel("最近文件（功能待实现）"))
+        # ── 最近文件列表 (Phase 2, D-40~D-44) ──
+        recent_label = QLabel("最近打开的文件")
+        recent_font = recent_label.font()
+        recent_font.setBold(True)
+        recent_label.setFont(recent_font)
+        layout.addWidget(recent_label)
+
+        self._recent_list = QListWidget()
+        self._recent_list.setMaximumHeight(150)
+        self._recent_list.setMinimumWidth(300)
+        self._recent_list.itemClicked.connect(self._on_recent_item_clicked)
+        layout.addWidget(self._recent_list)
+
+        # 空状态标签（初始隐藏，无最近文件时显示）
+        self._empty_label = QLabel("暂无最近打开的文件")
+        self._empty_label.setAlignment(Qt.AlignCenter)
+        self._empty_label.setStyleSheet("color: gray;")
+        self._empty_label.hide()
+        layout.addWidget(self._empty_label)
 
         layout.addStretch()
+
+    # ── 公开方法 ──
+
+    def set_recent_files(self, paths: list[str]):
+        """设置最近文件列表显示。
+
+        Args:
+            paths: 文件绝对路径列表（最多 5 条）。
+        """
+        self._recent_list.clear()
+        if not paths:
+            self._recent_list.hide()
+            self._empty_label.show()
+        else:
+            self._recent_list.show()
+            self._empty_label.hide()
+            for path in paths:
+                self._recent_list.addItem(path)
+
+    # ── 内部方法 ──
+
+    def _on_recent_item_clicked(self, item):
+        """单击最近文件条目，发射信号 (D-43)。"""
+        self.recent_file_clicked.emit(item.text())
+
+    # ── 属性 ──
 
     @property
     def new_button(self) -> QPushButton:
@@ -66,3 +107,8 @@ class WelcomeWidget(QWidget):
     def open_button(self) -> QPushButton:
         """打开笔记本按钮"""
         return self._btn_open
+
+    @property
+    def recent_list(self) -> QListWidget:
+        """最近文件列表"""
+        return self._recent_list
