@@ -54,3 +54,32 @@ def section_item() -> SNoteItem:
 def note_item() -> SNoteItem:
     """单个 note 节点。"""
     return SNoteItem.new_note("单笔记", "这是内容")
+
+
+# ── Crypto Test Fixtures ──
+
+
+@pytest.fixture
+def test_password() -> str:
+    """测试用密码（含大小写字母、数字、符号，> 8 字符）。"""
+    return "TestP@ss123"
+
+
+@pytest.fixture
+def sample_json_str() -> str:
+    """有效的加密载荷 JSON 字符串。"""
+    import json
+    document = {
+        "version": 1,
+        "data": {
+            "id": "a" * 32,
+            "title": "根分区",
+            "item_type": "section",
+            "content": "",
+            "children": [],
+            "tags": [],
+            "created_at": "2026-05-07T10:00:00Z",
+            "updated_at": "2026-05-07T10:00:00Z",
+        },
+    }
+    return json.dumps(document, ensure_ascii=False)
