@@ -49,7 +49,7 @@
 **计划列表：**
 - [x] 02-01-PLAN.md — (TDD) 加密文件头模块：69 字节二进制文件头的组装与解析
 - [x] 02-02-PLAN.md — 密码对话框 UI：PasswordDialog（3 种模式）+ PasswordGenerator
-- [ ] 02-03-PLAN.md — (TDD) 加密文件服务：PBKDF2+AES-256-CFB+HMAC-SHA256 的 encrypt/decrypt/save/open
+- [x] 02-03-PLAN.md — (TDD) 加密文件服务：PBKDF2+AES-256-CFB+HMAC-SHA256 的 encrypt/decrypt/save/open
 - [ ] 02-04-PLAN.md — MainWindow 集成：dirty flag、closeEvent、文件操作 handlers、最近文件列表
 
 ### Phase 3：导航系统
