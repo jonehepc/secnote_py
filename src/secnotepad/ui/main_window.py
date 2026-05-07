@@ -174,6 +174,11 @@ class MainWindow(QMainWindow):
 
     def _on_new_notebook(self):
         """新建空白笔记本 (D-14)"""
+        if self._root_item is not None:
+            # Phase 3 TODO: check dirty flag and show confirmation dialog
+            pass
+        if self._tree_model is not None:
+            self._tree_model.deleteLater()
         self._root_item = SNoteItem.new_section("根分区")
         self._tree_model = TreeModel(self._root_item, self)
         self._tree_view.setModel(self._tree_model)
