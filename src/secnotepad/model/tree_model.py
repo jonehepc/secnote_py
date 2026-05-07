@@ -149,9 +149,14 @@ class TreeModel(QAbstractItemModel):
 
         调用前需确保 parent_index 有效（或为 QModelIndex() 表示根）。
         自动发出 beginInsertRows / endInsertRows 信号供视图更新。
+
+        Raises:
+            ValueError: 如果父节点是 Note（叶子节点），违反 D-07 规则。
         """
         parent_item = (parent_index.internalPointer()
                        if parent_index.isValid() else self._root_item)
+        if parent_item.item_type == "note":
+            raise ValueError("Cannot add children to a Note (leaf node)")
         row = len(parent_item.children)
         self.beginInsertRows(parent_index, row, row)
         parent_item.children.append(item)
