@@ -174,9 +174,8 @@ class TreeModel(QAbstractItemModel):
         parent_idx = self.parent(index)
         parent_item = (parent_idx.internalPointer()
                        if parent_idx.isValid() else self._root_item)
-        try:
-            row = parent_item.children.index(item)
-        except ValueError:
+        row = self._child_row(parent_item, item)
+        if row == -1:
             return False
         self.beginRemoveRows(parent_idx, row, row)
         del parent_item.children[row]
