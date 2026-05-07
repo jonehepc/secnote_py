@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secnotepad"
+version = "0.1.0"
+description = "安全的本地加密笔记本应用"
+requires-python = ">=3.12"
+dependencies = [
+    "PySide6>=6.11.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

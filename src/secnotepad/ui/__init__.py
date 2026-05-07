@@ -1,0 +1,1 @@
+"""SecNotepad UI components package."""
