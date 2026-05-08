@@ -295,6 +295,16 @@ class MainWindow(QMainWindow):
         # --- 键盘快捷键 (D-57) ---
         self._setup_navigation_shortcuts()
 
+        # --- 启用工具栏按钮 (D-55) ---
+        self._btn_new_section.setEnabled(True)
+        self._btn_new_child_section.setEnabled(True)
+        self._btn_new_page.setEnabled(True)
+
+        # 工具栏按钮信号连接 — 在导航初始化后连接 (D-55)
+        self._btn_new_section.clicked.connect(self._on_new_root_section)
+        self._btn_new_child_section.clicked.connect(self._on_new_child_section)
+        self._btn_new_page.clicked.connect(self._on_new_page)
+
         # --- 4. 初始导航状态 (D-52, D-53) ---
         self._initialize_navigation_state()
 
@@ -425,6 +435,124 @@ class MainWindow(QMainWindow):
             first_index = proxy.index(0, 0, QModelIndex())
             if first_index.isValid():
                 self._tree_view.setCurrentIndex(first_index)
+
+    # ── CRUD 操作 handlers (D-55, D-56, D-57, D-58, D-59, D-61, D-64) ──
+
+    def _on_new_root_section(self):
+        """在根节点下创建顶级分区 (D-55, D-61)。"""
+        section = SNoteItem.new_section("新分区")
+        self._tree_model.add_item(QModelIndex(), section)
+        self.mark_dirty()
+        # 展开根节点以显示新分区，然后选中新分区
+        proxy = self._section_filter
+        new_row = proxy.rowCount(QModelIndex()) - 1
+        new_index = proxy.index(new_row, 0, QModelIndex())
+        self._tree_view.expand(new_index.parent())
+        self._tree_view.setCurrentIndex(new_index)
+        self.statusBar().showMessage("已创建分区: 新分区")
+
+    def _on_new_child_section(self):
+        """在选中分区下创建子分区 (D-55, D-61)。"""
+        current = self._tree_view.currentIndex()
+        if not current.isValid():
+            return
+        source_index = self._section_filter.mapToSource(current)
+        section = SNoteItem.new_section("新分区")
+        self._tree_model.add_item(source_index, section)
+        self.mark_dirty()
+        # 展开父节点以显示新子分区
+        self._tree_view.expand(current)
+        self.statusBar().showMessage("已创建子分区: 新分区")
+
+    def _on_rename_section(self):
+        """对选中的分区进入编辑模式 (D-59)。"""
+        current = self._tree_view.currentIndex()
+        if current.isValid():
+            self._tree_view.edit(current)
+
+    def _on_delete_section(self):
+        """删除选中的分区 (D-58, D-61, Pitfall 7)。"""
+        current = self._tree_view.currentIndex()
+        if not current.isValid():
+            return
+        source_index = self._section_filter.mapToSource(current)
+        item = source_index.internalPointer()
+
+        # D-58: 仅含子内容时弹出确认对话框
+        if item.children:
+            reply = QMessageBox.warning(
+                self,
+                "确认删除",
+                f"分区「{item.title}」包含 {len(item.children)} 个子项目"
+                f"（子分区或页面），删除后将一并移除。\n\n确定删除？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        # Pitfall 7: 检查是否删除了当前 PageListModel 的分区
+        current_section = self._page_list_model._section
+        self._tree_model.remove_item(source_index)
+        self.mark_dirty()
+
+        if current_section is item:
+            self._page_list_model.set_section(None)
+            self._show_editor_placeholder()
+            parent_index = self._tree_view.currentIndex().parent()
+            if parent_index.isValid():
+                self._tree_view.setCurrentIndex(parent_index)
+
+        self.statusBar().showMessage(f"已删除分区: {item.title}")
+
+    def _on_new_page(self):
+        """在当前分区下新建页面 (D-55, D-61, D-64)。"""
+        if self._page_list_model._section is None:
+            return
+        note = SNoteItem.new_note("新页面")
+        if self._page_list_model.add_note(note):
+            self.mark_dirty()
+            # D-64: 自动选中新创建的页面
+            new_row = self._page_list_model.rowCount() - 1
+            new_index = self._page_list_model.index(new_row, 0)
+            self._list_view.setCurrentIndex(new_index)
+            self.statusBar().showMessage("已创建页面: 新页面")
+
+    def _on_new_page_in_section(self):
+        """右键分区 → 新建页面: 在当前分区下创建页面。"""
+        self._on_new_page()
+
+    def _on_rename_page(self):
+        """对选中的页面进入编辑模式 (D-59)。"""
+        current = self._list_view.currentIndex()
+        if current.isValid():
+            self._list_view.edit(current)
+
+    def _on_delete_page(self):
+        """删除选中的页面 (D-58: 单页面不弹确认, D-61)。"""
+        current = self._list_view.currentIndex()
+        if not current.isValid():
+            return
+        note = self._page_list_model.note_at(current)
+        self._page_list_model.remove_note(current)
+        self.mark_dirty()
+        self.statusBar().showMessage(f"已删除页面: {note.title if note else ''}")
+
+    def _on_delete_selected(self):
+        """Delete 键 — 根据焦点视图分发删除 (D-57)。"""
+        focused = self.focusWidget()
+        if focused is self._list_view:
+            self._on_delete_page()
+        elif focused is self._tree_view:
+            self._on_delete_section()
+
+    def _on_rename_selected(self):
+        """F2 键 — 根据焦点视图进入编辑模式 (D-57)。"""
+        focused = self.focusWidget()
+        if focused is self._list_view:
+            self._on_rename_page()
+        elif focused is self._tree_view:
+            self._on_rename_section()
 
     # ── 状态栏 ──
 
