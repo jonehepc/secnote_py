@@ -44,6 +44,7 @@ class MainWindow(QMainWindow):
         self._btn_new_child_section: QPushButton = None
         self._page_button_bar: QFrame = None
         self._btn_new_page: QPushButton = None
+        self._navigation_initialized: bool = False
 
         # ── 文件操作状态 (Phase 2) ──
         self._is_dirty: bool = False
@@ -258,6 +259,9 @@ class MainWindow(QMainWindow):
 
         实现 D-49~D-54, D-59, D-62, D-63。
         """
+        if self._navigation_initialized:
+            self._teardown_navigation()
+
         # --- 1. SectionFilterProxy: 过滤分区树仅显示 section (D-49) ---
         self._section_filter = SectionFilterProxy(self)
         self._section_filter.setSourceModel(self._tree_model)
@@ -278,7 +282,6 @@ class MainWindow(QMainWindow):
         )
 
         # --- 3. 选择信号连接 (D-51, D-62, Pitfall 3) ---
-        # 必须在 setModel 之后获取 selectionModel (Pitfall 3)
         self._tree_selection = self._tree_view.selectionModel()
         self._tree_selection.currentChanged.connect(
             self._on_tree_current_changed
@@ -306,8 +309,66 @@ class MainWindow(QMainWindow):
         self._btn_new_child_section.clicked.connect(self._on_new_child_section)
         self._btn_new_page.clicked.connect(self._on_new_page)
 
+        self._navigation_initialized = True
+        self._rebind_page_model_to_current_section()
+
         # --- 4. 初始导航状态 (D-52, D-53) ---
         self._initialize_navigation_state()
+
+    def _teardown_navigation(self):
+        """断开上一次导航初始化的信号，确保重复初始化幂等。"""
+        if self._tree_selection is not None:
+            try:
+                self._tree_selection.currentChanged.disconnect(
+                    self._on_tree_current_changed
+                )
+            except (RuntimeError, TypeError):
+                pass
+        if self._page_selection is not None:
+            try:
+                self._page_selection.currentChanged.disconnect(
+                    self._on_page_current_changed
+                )
+            except (RuntimeError, TypeError):
+                pass
+        for button, handler in (
+            (self._btn_new_section, self._on_new_root_section),
+            (self._btn_new_child_section, self._on_new_child_section),
+            (self._btn_new_page, self._on_new_page),
+        ):
+            if button is None:
+                continue
+            try:
+                button.clicked.disconnect(handler)
+            except (RuntimeError, TypeError):
+                pass
+        self._navigation_initialized = False
+
+    def _select_new_child_section(self, parent_proxy_index: QModelIndex):
+        """在当前选中分区下创建子分区后选中新子节点。"""
+        if not parent_proxy_index.isValid():
+            return
+        self._tree_view.expand(parent_proxy_index)
+        child_row = self._section_filter.rowCount(parent_proxy_index) - 1
+        if child_row < 0:
+            return
+        child_index = self._section_filter.index(child_row, 0, parent_proxy_index)
+        if child_index.isValid():
+            self._tree_view.setCurrentIndex(child_index)
+            self._tree_view.scrollTo(child_index)
+
+    def _rebind_page_model_to_current_section(self):
+        """重复初始化后基于当前树选中项恢复页面列表绑定。"""
+        current = self._tree_view.currentIndex()
+        if current.isValid():
+            self._on_tree_current_changed(current, QModelIndex())
+            if self._page_list_model.rowCount() > 0:
+                first_page = self._page_list_model.index(0, 0)
+                self._list_view.setCurrentIndex(first_page)
+                self._on_page_current_changed(first_page, QModelIndex())
+        else:
+            self._page_list_model.set_section(None)
+            self._show_editor_placeholder()
 
     def _on_tree_current_changed(self, current: QModelIndex,
                                  previous: QModelIndex):
@@ -485,8 +546,7 @@ class MainWindow(QMainWindow):
         section = SNoteItem.new_section("新分区")
         self._tree_model.add_item(source_index, section)
         self.mark_dirty()
-        # 展开父节点以显示新子分区
-        self._tree_view.expand(current)
+        self._select_new_child_section(current)
         self.statusBar().showMessage("已创建子分区: 新分区")
 
     def _on_rename_section(self):
@@ -494,6 +554,28 @@ class MainWindow(QMainWindow):
         current = self._tree_view.currentIndex()
         if current.isValid():
             self._tree_view.edit(current)
+
+    def _rename_current_section(self, new_title: str) -> bool:
+        """重命名当前分区并在成功时标记脏状态。"""
+        current = self._tree_view.currentIndex()
+        if not current.isValid():
+            return False
+        if self._tree_model.setData(
+            self._section_filter.mapToSource(current), new_title
+        ):
+            self.mark_dirty()
+            return True
+        return False
+
+    def _rename_current_page(self, new_title: str) -> bool:
+        """重命名当前页面并在成功时标记脏状态。"""
+        current = self._list_view.currentIndex()
+        if not current.isValid():
+            return False
+        if self._page_list_model.setData(current, new_title):
+            self.mark_dirty()
+            return True
+        return False
 
     def _on_delete_section(self):
         """删除选中的分区 (D-58, D-61, Pitfall 7)。"""
