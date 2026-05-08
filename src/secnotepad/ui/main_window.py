@@ -393,7 +393,11 @@ class MainWindow(QMainWindow):
         if self._current_path:
             # 直接保存到现有文件
             json_str = Serializer.to_json(self._root_item)
-            FileService.save(json_str, self._current_path, self._current_password)
+            try:
+                FileService.save(json_str, self._current_path, self._current_password)
+            except (OSError, IOError) as e:
+                QMessageBox.critical(self, "保存失败", f"无法保存文件:\n{e}")
+                return
             self._is_dirty = False
             self._update_window_title()
             self.statusBar().showMessage("笔记本已保存")
@@ -433,7 +437,11 @@ class MainWindow(QMainWindow):
             set_dialog.clear_password()
 
         json_str = Serializer.to_json(self._root_item)
-        FileService.save_as(json_str, path, new_password)
+        try:
+            FileService.save_as(json_str, path, new_password)
+        except (OSError, IOError) as e:
+            QMessageBox.critical(self, "保存失败", f"无法保存文件:\n{e}")
+            return
 
         # 更新状态
         self._current_path = path
