@@ -98,8 +98,7 @@ class PasswordGenerator(QDialog):
         self._preview.setText(self._password)
 
     def _on_accept(self):
-        """确认生成并关闭。"""
-        self._generate()
+        """确认生成并关闭 — 使用当前显示的密码，不重新生成。"""
         self.accept()
 
     def password(self) -> str:
