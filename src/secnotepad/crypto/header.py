@@ -29,11 +29,14 @@ class Header:
             69 字节二进制文件头
 
         Raises:
-            AssertionError: 如果任意参数长度不符合要求
+            HeaderError: 如果任意参数长度不符合要求
         """
-        assert len(salt) == 16, "salt must be 16 bytes"
-        assert len(iv) == 16, "IV must be 16 bytes"
-        assert len(hmac_tag) == 32, "HMAC tag must be 32 bytes"
+        if len(salt) != 16:
+            raise HeaderError(f"salt must be 16 bytes, got {len(salt)}")
+        if len(iv) != 16:
+            raise HeaderError(f"IV must be 16 bytes, got {len(iv)}")
+        if len(hmac_tag) != 32:
+            raise HeaderError(f"HMAC tag must be 32 bytes, got {len(hmac_tag)}")
         return struct.pack(
             '!4s B 16s 16s 32s',
             MAGIC, VERSION, salt, iv, hmac_tag,
