@@ -287,6 +287,11 @@ class PasswordDialog(QDialog):
     def _on_confirm(self):
         """确认按钮点击处理。"""
         pwd_text = self._pwd_input.text()
+        if pwd_text and not pwd_text.isascii():
+            error_label = getattr(self, '_error_label', None) or self._mismatch_warning
+            error_label.setText("密码仅支持 ASCII 字符")
+            error_label.setVisible(True)
+            return
         if self._mode == PasswordMode.CHANGE_PASSWORD:
             if self._cb_change and self._cb_change.isChecked():
                 self._password = bytearray(pwd_text.encode('ascii'))
