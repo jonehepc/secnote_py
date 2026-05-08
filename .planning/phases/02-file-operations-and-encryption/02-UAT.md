@@ -1,5 +1,5 @@
 ---
-status: complete
+status: resolved
 phase: 02-file-operations-and-encryption
 source: 02-02-SUMMARY.md, 02-04-SUMMARY.md
 started: 2026-05-08T00:00:00Z
@@ -50,15 +50,14 @@ result: pass
 
 ### 10. 欢迎页最近文件列表
 expected: 欢迎页显示最近打开的文件列表（最多5条）。点击列表中的文件直接触发打开流程（弹出密码输入对话框）。重新打开已存在的文件时，该条目移到列表顶部。已不存在的文件不会出现在列表中。
-result: issue
-reported: "最近打开的文件列表里面没有数据。我已经新建并保存过一个test2.secnote的笔记"
-severity: major
+result: pass
+resolved_by: "02-05 gap closure — __init__() 末尾添加 _load_recent_files() + set_recent_files()；_on_save() 已有路径分支添加 _add_recent_file()"
 
 ## Summary
 
 total: 10
-passed: 9
-issues: 1
+passed: 10
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -66,9 +65,17 @@ blocked: 0
 ## Gaps
 
 - truth: "欢迎页显示最近打开的文件列表（最多5条）。保存过的文件应出现在列表中"
-  status: failed
+  status: resolved
   reason: "User reported: 最近打开的文件列表里面没有数据。我已经新建并保存过一个test2.secnote的笔记"
   severity: major
   test: 10
-  artifacts: []
-  missing: []
+  root_cause: "1) MainWindow.__init__() 未调用 _load_recent_files()，启动时欢迎页列表始终为空；2) _on_save() 已有文件路径时未调用 _add_recent_file()"
+  resolved_by: "02-05: __init__() 末尾加载最近文件并传入欢迎页；_on_save() 已有路径分支更新最近文件列表。2 个新测试验证。"
+  artifacts:
+    - path: "src/secnotepad/ui/main_window.py"
+      issue: "__init__() 末尾缺少 _load_recent_files() + set_recent_files() 调用（约 L42）"
+    - path: "src/secnotepad/ui/main_window.py"
+      issue: "_on_save() 保存已有文件后未调用 _add_recent_file()（约 L375-393）"
+  missing:
+    - "在 __init__() 末尾添加 _load_recent_files() 调用并设置到 welcome widget"
+    - "在 _on_save() 已有路径分支中添加 _add_recent_file() 调用"
