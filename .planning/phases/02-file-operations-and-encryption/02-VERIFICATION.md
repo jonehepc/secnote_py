@@ -1,6 +1,7 @@
 ---
 phase: 02-file-operations-and-encryption
-verified: 2026-05-07T16:00:00Z
+verified: 2026-05-08T12:00:00Z
+reverified: 2026-05-08T12:00:00Z
 status: passed
 score: 31/31 must-haves verified
 overrides_applied: 1
@@ -9,6 +10,7 @@ overrides:
     reason: "By design — FileService is a pure crypto layer operating on plain JSON strings. Serializer integration happens at the MainWindow layer (main_window.py imports Serializer). Plan 03 context explicitly documents this decoupling."
     accepted_by: "design (D-21~D-28, documented in CONTEXT.md)"
     accepted_at: "2026-05-07T16:00:00Z"
+gap_closure: 02-05
 gaps: []
 deferred: []
 human_verification: []
@@ -18,8 +20,9 @@ human_verification: []
 
 **Phase Goal:** 实现文件加密存储和密码管理功能，包括加密文件头、密码对话框、文件服务和主窗口集成
 **Verified:** 2026-05-07T16:00:00Z
+**Re-verified:** 2026-05-08T12:00:00Z (gap closure 02-05)
 **Status:** passed
-**Re-verification:** No — initial verification
+**Re-verification:** Yes — after 02-05 gap closure (recent files fix)
 
 ## Goal Achievement
 
@@ -118,8 +121,17 @@ human_verification: []
 | Header tests pass | `python -m pytest tests/crypto/test_header.py -x -q` | 18 passed | PASS |
 | File service tests pass | `python -m pytest tests/crypto/test_file_service.py -x -q` | 16 passed | PASS |
 | Password dialog tests pass | `python -m pytest tests/ui/test_password_dialog.py -x -q` | 19 passed | PASS |
-| Main window tests pass | `python -m pytest tests/ui/test_main_window.py -x -q` | 53 passed | PASS |
-| Total: 106 tests | All 4 test suites | 106/106 passed | PASS |
+| Main window tests pass | `python -m pytest tests/ui/test_main_window.py -x -q` | 55 passed (+2 from 02-05) | PASS |
+| Total: 201 tests | All 5 test suites | 201/201 passed | PASS |
+
+### Gap Closure (02-05)
+
+Plan 02-05 closed the UAT gap "欢迎页最近文件列表为空" with two fixes:
+
+1. **`MainWindow.__init__()`** — Added `_load_recent_files()` call at end of constructor, passing results to `WelcomeWidget.set_recent_files()` so the welcome page shows prior files on startup
+2. **`MainWindow._on_save()`** — Added `_add_recent_file(self._current_path)` in the existing-path branch so saving to an already-saved file updates the recent files list
+
+Both patterns match existing usage in `_on_new_notebook()`, `_on_save_as()`, and `_on_open_notebook()`. Two new tests verify the fixes: `test_init_loads_recent_files` and `test_on_save_adds_recent_file`. All 201 tests pass.
 
 ### Requirements Coverage
 
@@ -155,9 +167,10 @@ None — all checks are programmatically verifiable.
 
 ### Gaps Summary
 
-No gaps found. All 31 truths verified. All 106 tests pass. All 5 ROADMAP success criteria met. All 8 Phase 2 requirements satisfied.
+All gaps closed. 31/31 truths verified. All 201 tests pass. All 5 ROADMAP success criteria met. All 8 Phase 2 requirements satisfied. UAT gap "欢迎页最近文件列表为空" resolved by plan 02-05.
 
 ---
 
 _Verified: 2026-05-07T16:00:00Z_
+_Re-verified: 2026-05-08T12:00:00Z_
 _Verifier: Claude (gsd-verifier)_
