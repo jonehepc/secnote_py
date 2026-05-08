@@ -132,6 +132,8 @@ class FileService:
         """
         if not password:
             raise ValueError("密码不能为空")
+        if not password.isascii():
+            raise ValueError("密码仅支持 ASCII 字符 (D-29)")
 
         try:
             parsed = Header.parse(file_data)
