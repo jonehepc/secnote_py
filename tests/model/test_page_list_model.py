@@ -138,7 +138,7 @@ class TestSetData:
         assert result is True
         assert list_model.data(idx, Qt.DisplayRole) == "新标题"
         assert list_model.data(idx, Qt.EditRole) == "新标题"
-        assert len(spy) == 1
+        assert spy.count() == 1
 
     def test_setdata_reject_empty_string(self, list_model):
         """场景 11: setData(valid_index, "", Qt.EditRole) → 返回 False，note.title 不变 (D-60)。"""
