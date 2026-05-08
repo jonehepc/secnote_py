@@ -145,14 +145,18 @@ class TestSplitterLayout:
         assert widget.minimumWidth() <= 100
 
     def test_tree_view_exists(self, splitter):
-        """左侧是 QTreeView"""
+        """左侧包含 QTreeView（位于按钮栏下方容器中）。"""
         from PySide6.QtWidgets import QTreeView
-        assert isinstance(splitter.widget(0), QTreeView)
+        container = splitter.widget(0)
+        tree = container.findChild(QTreeView)
+        assert tree is not None
 
     def test_list_view_exists(self, splitter):
-        """中间是 QListView"""
+        """中间包含 QListView（位于按钮栏下方容器中）。"""
         from PySide6.QtWidgets import QListView
-        assert isinstance(splitter.widget(1), QListView)
+        container = splitter.widget(1)
+        list_view = container.findChild(QListView)
+        assert list_view is not None
 
     def test_editor_placeholder_exists(self, splitter):
         """右侧是 QWidget 编辑区占位"""
