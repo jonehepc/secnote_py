@@ -34,6 +34,7 @@ metrics:
 | 2    | ed6b4b4 | feat | 实现 CRUD handler、工具栏按钮信号连接、删除确认对话框    |
 | 3    | 795f25d | test | 导航 CRUD 集成测试（16 个测试），修复布局变更后的旧测试  |
 | 4    | 96d1d34 | fix  | 修复人工验证发现的问题：移除 Ctrl+N、修复页面右键菜单、右侧编辑区可编辑 |
+| 5    | a109230 | fix  | 修复阶段验证缺口：导航初始化幂等化、重命名置脏、子分区创建后自动选中 |
 
 ## 完成的需求 (Must-Haves)
 
@@ -87,7 +88,8 @@ metrics:
 - 导航集成测试: `python -m pytest tests/ui/test_navigation.py -x` — 初始 16/16 通过
 - 人工验证: 已完成；发现 Ctrl+N 歧义冲突、页面右键菜单绑定错误、右侧编辑区不可编辑，均已修复
 - 修复后 UI 回归: `python -m pytest tests/ui/test_navigation.py tests/ui/test_main_window.py -q --tb=short` — 77/77 通过
-- 完整回归测试: 计划执行时 266/266 通过；修复后未重跑全量，仅重跑相关 UI 套件
+- 缺口修复后导航相关回归: `python -m pytest tests/ui/test_navigation.py tests/ui/test_main_window.py tests/model/test_tree_model.py tests/model/test_page_list_model.py -q --tb=short` — 210/210 通过
+- 完整回归测试: `python -m pytest -x -q --tb=short` — 272/272 通过
 
 ## 人工验证后修正
 
@@ -106,6 +108,16 @@ metrics:
 4. **修复总结中的路径与验证信息**
    - 原因：原 SUMMARY 中有 `src/secnotadata/...` 路径笔误，且未记录人工验证后的修正
    - 处理：已更正并补充
+
+5. **修复阶段验证发现的结构性缺口**
+   - 原因：阶段验证发现 `_setup_navigation()` 在同一窗口会话里重复调用时会重复绑定按钮/选择信号；重命名后不会置脏；新建子分区后未自动选中新节点
+   - 处理：为导航初始化增加 teardown 以保证幂等；新增 `_rename_current_section()` / `_rename_current_page()` helper 负责重命名+置脏；子分区创建后自动展开父节点并选中新子节点
+   - 修改文件：`src/secnotepad/ui/main_window.py`, `tests/ui/test_navigation.py`
+   - 提交：a109230
+
+6. **Accepted deviation — 移除 Ctrl+N 页面快捷键**
+   - 原因：Qt 将页面列表 Ctrl+N 与主菜单 Ctrl+N 判定为歧义快捷键，运行时提示 `QAction::event: Ambiguous shortcut overload: Ctrl+N`
+   - 处理：按人工确认移除页面级 Ctrl+N，新建页面保留工具栏与右键菜单入口；后续验证应将该项视为接受偏差，而非缺陷
 
 ## 威胁模型审查
 
