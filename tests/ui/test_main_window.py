@@ -369,3 +369,46 @@ class TestRecentFiles:
         welcome = window._stack.widget(0)
         welcome.set_recent_files([])
         assert welcome.recent_list.count() == 0
+
+    def test_init_loads_recent_files(self, qapp, tmp_path):
+        """__init__ 后欢迎页最近文件列表反映 QSettings 中的内容。"""
+        from PySide6.QtCore import QSettings
+        test_path = str(tmp_path / "test_recent.secnote")
+        test_path2 = str(tmp_path / "test_recent2.secnote")
+        # 创建测试文件（_load_recent_files 过滤不存在的文件）
+        test_path and open(test_path, "w").close()
+        open(test_path2, "w").close()
+
+        settings = QSettings()
+        settings.setValue("recent_files", [test_path, test_path2])
+        try:
+            w = MainWindow()
+            w.show()
+            welcome = w._stack.widget(0)
+            assert welcome.recent_list.count() == 2
+            w.close()
+            w.deleteLater()
+        finally:
+            settings.setValue("recent_files", [])
+
+    def test_on_save_adds_recent_file(self, window, monkeypatch, tmp_path):
+        """保存到已有路径后，欢迎页最近文件列表立即更新。"""
+        from src.secnotepad.crypto import file_service
+
+        window._on_new_notebook()
+        save_path = str(tmp_path / "saved.secnote")
+        window._current_path = save_path
+        window._current_password = "testpw"
+
+        # Mock FileService.save 避免写入真实文件
+        monkeypatch.setattr(file_service.FileService, "save", lambda *a, **kw: None)
+
+        window._on_save()
+
+        welcome = window._stack.widget(0)
+        # 最近文件列表应包含保存的路径
+        found = any(
+            welcome.recent_list.item(i).text() == save_path
+            for i in range(welcome.recent_list.count())
+        )
+        assert found, f"Expected {save_path} in recent files list"

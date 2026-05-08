@@ -41,6 +41,10 @@ class MainWindow(QMainWindow):
         self._setup_status_bar()
         self._connect_actions()
 
+        # 加载最近文件列表到欢迎页 (D-40)
+        recent = self._load_recent_files()
+        self._welcome.set_recent_files(recent)
+
     # ── 窗口设置 ──
 
     def _setup_window(self):
@@ -388,6 +392,7 @@ class MainWindow(QMainWindow):
             self._is_dirty = False
             self._update_window_title()
             self.statusBar().showMessage("笔记本已保存")
+            self._add_recent_file(self._current_path)
         else:
             # 无路径 → 触发另存为
             self._on_save_as()
