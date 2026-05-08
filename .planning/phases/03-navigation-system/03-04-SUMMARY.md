@@ -2,7 +2,7 @@
 phase: 03-navigation-system
 plan: 04
 subsystem: navigation
-tags: [navigation, crud, context-menu, keyboard-shortcuts, toolbar]
+tags: [navigation, crud, context-menu, keyboard-shortcuts, toolbar, human-verification]
 requires: [03-03]
 provides: [NAV-03, NAV-04]
 affects: [ui/main_window, ui/test_main_window, ui/test_navigation]
@@ -13,8 +13,9 @@ key-files:
   created:
     - tests/ui/test_navigation.py
   modified:
-    - src/secnotadata/ui/main_window.py
+    - src/secnotepad/ui/main_window.py
     - tests/ui/test_main_window.py
+    - tests/ui/test_navigation.py
 decisions: []
 metrics:
   duration: ~30m
@@ -32,6 +33,7 @@ metrics:
 | 1    | 7b4acda | feat | 添加工具栏按钮、上下文菜单、键盘快捷键                  |
 | 2    | ed6b4b4 | feat | 实现 CRUD handler、工具栏按钮信号连接、删除确认对话框    |
 | 3    | 795f25d | test | 导航 CRUD 集成测试（16 个测试），修复布局变更后的旧测试  |
+| 4    | 96d1d34 | fix  | 修复人工验证发现的问题：移除 Ctrl+N、修复页面右键菜单、右侧编辑区可编辑 |
 
 ## 完成的需求 (Must-Haves)
 
@@ -41,7 +43,8 @@ metrics:
 - [x] 右键空白区域显示新建选项 (D-56)
 - [x] 按 Delete 键根据焦点视图删除 (D-57)
 - [x] 按 F2 键进入重命名模式 (D-57)
-- [x] Ctrl+N 新建页面（仅页面列表聚焦时）(D-57)
+- [x] Delete / F2 键盘操作按预期工作 (D-57)
+- [x] Ctrl+N 因 Qt 快捷键歧义冲突在人工验证后移除，不再作为交互要求
 - [x] 删除含子内容分区时弹出警告对话框 (D-58)
 - [x] 删除空分区或单页面时不弹确认 (D-58)
 - [x] 所有创建/删除操作后调用 mark_dirty() (D-61)
@@ -81,8 +84,28 @@ metrics:
 ## 验证结果
 
 - 语法导入: `python -c "from src.secnotepad.ui.main_window import MainWindow"` — 通过
-- 导航集成测试: `python -m pytest tests/ui/test_navigation.py -x` — 16/16 通过
-- 完整回归测试: `python -m pytest tests/ -x` — 266/266 通过
+- 导航集成测试: `python -m pytest tests/ui/test_navigation.py -x` — 初始 16/16 通过
+- 人工验证: 已完成；发现 Ctrl+N 歧义冲突、页面右键菜单绑定错误、右侧编辑区不可编辑，均已修复
+- 修复后 UI 回归: `python -m pytest tests/ui/test_navigation.py tests/ui/test_main_window.py -q --tb=short` — 77/77 通过
+- 完整回归测试: 计划执行时 266/266 通过；修复后未重跑全量，仅重跑相关 UI 套件
+
+## 人工验证后修正
+
+1. **移除 Ctrl+N 页面快捷键**
+   - 原因：Qt 将页面列表 Ctrl+N 与主菜单“新建笔记本”Ctrl+N 判定为歧义重载，运行时持续提示 `QAction::event: Ambiguous shortcut overload: Ctrl+N`
+   - 处理：按人工验证结论移除此快捷键，仅保留工具栏与右键菜单新建页面
+
+2. **修复页面右键菜单绑定**
+   - 原因：右键发生在 `QListView.viewport()` 上，原先只绑定到 view 本身，导致显示系统默认菜单
+   - 处理：将自定义菜单策略与信号同时绑定到 viewport，并在右键命中项时先选中该项
+
+3. **右侧页面区改为可编辑正文区**
+   - 原因：人工验证确认需求应为可编辑，而非只读预览
+   - 处理：`QTextEdit` 改为可编辑，文本变化同步写回当前 note 内容并触发 `mark_dirty()`
+
+4. **修复总结中的路径与验证信息**
+   - 原因：原 SUMMARY 中有 `src/secnotadata/...` 路径笔误，且未记录人工验证后的修正
+   - 处理：已更正并补充
 
 ## 威胁模型审查
 
