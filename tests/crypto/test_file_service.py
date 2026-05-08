@@ -4,7 +4,7 @@ import json
 import pytest
 
 from src.secnotepad.crypto.file_service import FileService
-from src.secnotepad.crypto.header import Header, HEADER_SIZE
+from src.secnotepad.crypto.header import HEADER_SIZE
 
 
 # ── 纯加密/解密测试 ──
@@ -119,8 +119,8 @@ class TestEdgeCases:
     def test_tampered_ciphertext(self, sample_json_str, test_password):
         """篡改密文后解密失败。"""
         encrypted = bytearray(FileService.encrypt(sample_json_str, test_password))
-        # 翻转密文部分的一个字节
-        encrypted[70] ^= 0xFF
+        # 翻转密文部分（头之后）的一个字节
+        encrypted[HEADER_SIZE + 5] ^= 0xFF
         with pytest.raises(ValueError, match="密码错误"):
             FileService.decrypt(bytes(encrypted), test_password)
 
@@ -131,10 +131,10 @@ class TestEdgeCases:
         with pytest.raises(ValueError, match="无效的文件格式"):
             FileService.decrypt(bytes(encrypted), test_password)
 
-    def test_tampered_hmac(self, sample_json_str, test_password):
-        """篡改 HMAC tag 后解密失败。"""
+    def test_tampered_tag(self, sample_json_str, test_password):
+        """篡改 GCM 认证标签后解密失败。"""
         encrypted = bytearray(FileService.encrypt(sample_json_str, test_password))
-        # HMAC 位于文件头 37-68 字节
+        # GCM tag 位于文件头 33-48 字节
         encrypted[40] ^= 0xFF
         with pytest.raises(ValueError, match="密码错误"):
             FileService.decrypt(bytes(encrypted), test_password)

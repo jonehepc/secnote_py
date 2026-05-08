@@ -1,6 +1,5 @@
 """密码生成器子对话框 (D-33, CRYPT-04)"""
 
-import random
 import secrets
 import string
 
@@ -99,7 +98,12 @@ class PasswordGenerator(QDialog):
         length = self._spin_length.value()
         # 如果长度不够覆盖所有选中字符集，随机选取其中几个
         if length < len(enabled_charsets):
-            selected = random.sample(enabled_charsets, length)
+            # secrets-based sampling (Fisher-Yates partial shuffle)
+            remaining = list(enabled_charsets)
+            selected = []
+            for _ in range(length):
+                idx = secrets.randbelow(len(remaining))
+                selected.append(remaining.pop(idx))
             guaranteed = [secrets.choice(cs) for cs in selected]
         else:
             # 至少从每个选中的字符集中取一个字符
@@ -109,9 +113,11 @@ class PasswordGenerator(QDialog):
             if remaining > 0:
                 extra = [secrets.choice(combined) for _ in range(remaining)]
                 guaranteed.extend(extra)
-        # 打乱顺序，避免可预测的前缀模式
+        # Fisher-Yates shuffle with secrets (cryptographically secure)
         result = list(guaranteed)
-        random.shuffle(result)
+        for i in range(len(result) - 1, 0, -1):
+            j = secrets.randbelow(i + 1)
+            result[i], result[j] = result[j], result[i]
         self._password = "".join(result)
         self._preview.setText(self._password)
 
