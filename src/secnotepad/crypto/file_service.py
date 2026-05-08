@@ -1,24 +1,22 @@
-""".secnote 加密文件服务 — PBKDF2 + AES-256-CFB + HMAC-SHA256 完整编排。
+""".secnote 加密文件服务 — PBKDF2 + AES-256-GCM 完整编排。
 
 密钥派生 (D-21, D-22):
 - PBKDF2-SHA256, 16B salt, 600,000 iterations
-- 两次独立派生：aes_key (32B) + hmac_key (32B), 不同 context 标签
+- 派生单一 AES-256 密钥（GCM 提供认证加密，无需独立 HMAC）
 
 加密流程 (D-24):
-明文 JSON → HMAC-SHA256(明文) → AES-256-CFB 加密 → 文件头(魔数+版本+salt+IV+HMAC+密文)
+明文 JSON → AES-256-GCM 加密 → 文件头(魔数+版本+salt+nonce+tag+密文)
 
 解密流程 (D-24):
-文件头解析 → 提取 salt+IV → 派生密钥 → AES-256-CFB 解密 → 验证 HMAC
+文件头解析 → 提取 salt+nonce → 派生密钥 → AES-256-GCM 解密（含认证验证）
 """
 
 import os
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
-from cryptography.hazmat.decrepit.ciphers.modes import CFB
-from cryptography.hazmat.primitives import hmac as hmac_mod
-from cryptography.hazmat.primitives.constant_time import bytes_eq
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.exceptions import InvalidTag
 
 from .header import Header, HeaderError
 
@@ -26,51 +24,40 @@ from .header import Header, HeaderError
 # ── 密钥派生参数 (D-21, D-22) ──
 
 SALT_SIZE = 16
-IV_SIZE = 16
+NONCE_SIZE = 12
 KEY_SIZE = 32
 PBKDF2_ITERATIONS = 600_000
-AES_CONTEXT = b'secnotepad-aes-key'
-HMAC_CONTEXT = b'secnotepad-hmac-key'
+PBKDF2_CONTEXT = b'secnotepad-aes-key'
 
 
 class FileService:
     """加密文件服务 — 无状态静态方法编排。"""
 
     @staticmethod
-    def _derive_keys(password: str, salt: bytes) -> tuple[bytes, bytes]:
-        """派生 AES-256 密钥和 HMAC-SHA256 密钥。
+    def _derive_key(password: str, salt: bytes) -> bytes:
+        """派生 AES-256 密钥。
 
         Args:
             password: 用户密码 (ASCII, 见 D-29)
             salt: 16 字节随机 salt
 
         Returns:
-            (aes_key, hmac_key) 各 32 字节
+            32 字节 AES-256 密钥
         """
         password_bytes = password.encode('ascii')
 
-        aes_kdf = PBKDF2HMAC(
+        kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=KEY_SIZE,
             salt=salt,
             iterations=PBKDF2_ITERATIONS,
         )
-        aes_key = aes_kdf.derive(password_bytes + AES_CONTEXT)
-
-        hmac_kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=KEY_SIZE,
-            salt=salt,
-            iterations=PBKDF2_ITERATIONS,
-        )
-        hmac_key = hmac_kdf.derive(password_bytes + HMAC_CONTEXT)
-
-        return aes_key, hmac_key
+        return kdf.derive(password_bytes + PBKDF2_CONTEXT)
 
     @staticmethod
-    def _generate_iv() -> bytes:
-        """生成 16 字节随机 IV。"""
-        return os.urandom(IV_SIZE)
+    def _generate_nonce() -> bytes:
+        """生成 12 字节随机 GCM nonce。"""
+        return os.urandom(NONCE_SIZE)
 
     @staticmethod
     def _generate_salt() -> bytes:
@@ -86,7 +73,7 @@ class FileService:
             password: 用户密码
 
         Returns:
-            bytes: 完整文件数据（69B 头 + 密文）
+            bytes: 完整文件数据（49B 头 + 密文）
 
         Raises:
             ValueError: 密码为空或包含非 ASCII 字符
@@ -98,21 +85,17 @@ class FileService:
 
         plaintext_bytes = plaintext.encode('utf-8')
         salt = FileService._generate_salt()
-        iv = FileService._generate_iv()
-        aes_key, hmac_key = FileService._derive_keys(password, salt)
+        nonce = FileService._generate_nonce()
+        key = FileService._derive_key(password, salt)
 
-        # 先计算 HMAC (D-24)
-        h = hmac_mod.HMAC(hmac_key, hashes.SHA256())
-        h.update(plaintext_bytes)
-        hmac_tag = h.finalize()
-
-        # 再加密
-        cipher = Cipher(algorithms.AES(aes_key), CFB(iv))
+        # AES-256-GCM 加密 (内置认证，无需独立 HMAC)
+        cipher = Cipher(algorithms.AES(key), modes.GCM(nonce))
         encryptor = cipher.encryptor()
         ciphertext = encryptor.update(plaintext_bytes) + encryptor.finalize()
+        tag = encryptor.tag  # 16 字节认证标签
 
         # 组装文件头 (D-23)
-        header = Header.build(salt, iv, hmac_tag)
+        header = Header.build(salt, nonce, tag)
 
         return header + ciphertext
 
@@ -121,7 +104,7 @@ class FileService:
         """解密 .secnote 文件数据，返回明文 JSON 字符串。
 
         Args:
-            file_data: 完整文件数据（69B 头 + 密文）
+            file_data: 完整文件数据（49B 头 + 密文）
             password: 用户密码
 
         Returns:
@@ -141,24 +124,19 @@ class FileService:
             raise ValueError(f"无效的文件格式: {e}") from e
 
         salt = parsed['salt']
-        iv = parsed['iv']
-        stored_hmac = parsed['hmac_tag']
+        nonce = parsed['nonce']
+        stored_tag = parsed['tag']
         ciphertext = parsed['ciphertext']
 
-        aes_key, hmac_key = FileService._derive_keys(password, salt)
+        key = FileService._derive_key(password, salt)
 
-        # 先解密
-        cipher = Cipher(algorithms.AES(aes_key), CFB(iv))
+        # AES-256-GCM 解密（内置认证验证）
+        cipher = Cipher(algorithms.AES(key), modes.GCM(nonce))
         decryptor = cipher.decryptor()
-        plaintext = decryptor.update(ciphertext) + decryptor.finalize()
-
-        # 验证 HMAC (D-24, 常量时间比较)
-        h = hmac_mod.HMAC(hmac_key, hashes.SHA256())
-        h.update(plaintext)
-        computed_hmac = h.finalize()
-
-        if not bytes_eq(computed_hmac, stored_hmac):
-            raise ValueError("密码错误")
+        try:
+            plaintext = decryptor.update(ciphertext) + decryptor.finalize_with_tag(stored_tag)
+        except InvalidTag as e:
+            raise ValueError("密码错误") from e
 
         return plaintext.decode('utf-8')
 
@@ -198,7 +176,7 @@ class FileService:
     def save_as(plaintext: str, path: str, password: str):
         """另存为的别名 — 行为与 save 相同，但语义上表示新路径/新密码。
 
-        实际另存为流程（生成新 salt+IV）已由 encrypt() 内部的
-        _generate_salt() 和 _generate_iv() 隐式完成 (D-28)。
+        实际另存为流程（生成新 salt+nonce）已由 encrypt() 内部的
+        _generate_salt() 和 _generate_nonce() 隐式完成 (D-28)。
         """
         FileService.save(plaintext, path, password)
