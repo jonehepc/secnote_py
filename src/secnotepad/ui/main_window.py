@@ -341,24 +341,9 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
-        # 密码对话框（循环重试：密码错误时不关闭对话框，仅显示错误提示）
-        dialog = PasswordDialog(mode=PasswordMode.ENTER_PASSWORD, parent=self)
-        while dialog.exec() == QDialog.Accepted:
-            password = dialog.password()
-            dialog.clear_password()
-
-            try:
-                json_str = FileService.open(path, password)
-            except ValueError:
-                # D-35: 在对话框内显示错误提示，不关闭对话框，允许重试
-                dialog.set_error_message("密码错误，请重试")
-                continue  # 重新显示对话框（exec() 循环）
-
-            # 密码正确 —— 加载数据
-            password_correct = password  # 保存密码供会话使用
-            break
-        else:
-            # 用户取消了对话框
+        # 复用密码重试逻辑
+        json_str, password_correct = self._open_with_password_retry(path)
+        if json_str is None:
             return
 
         # 更新数据模型
@@ -515,6 +500,32 @@ class MainWindow(QMainWindow):
 
     # ── 最近文件点击 ──
 
+    def _open_with_password_retry(self, path: str) -> tuple:
+        """打开文件时处理密码输入与重试 (D-35)。
+
+        在密码错误时显示错误提示并允许用户重试。提取为独立方法
+        供 _on_open_notebook 和 _on_open_recent 复用。
+
+        Args:
+            path: .secnote 文件路径
+
+        Returns:
+            (json_str, password) 解密成功时返回；用户取消时返回 (None, None)
+        """
+        dialog = PasswordDialog(mode=PasswordMode.ENTER_PASSWORD, parent=self)
+        while dialog.exec() == QDialog.Accepted:
+            password = dialog.password()
+            dialog.clear_password()
+
+            try:
+                json_str = FileService.open(path, password)
+            except ValueError:
+                dialog.set_error_message("密码错误，请重试")
+                continue
+
+            return json_str, password
+        return None, None
+
     def _on_open_recent(self, path: str):
         """单击最近文件 → 触发打开流程 (D-43)。
 
@@ -528,22 +539,10 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard_changes():
             return
 
-        # 复用打开流程的密码重试循环
-        dialog = PasswordDialog(mode=PasswordMode.ENTER_PASSWORD, parent=self)
-        while dialog.exec() == QDialog.Accepted:
-            password = dialog.password()
-            dialog.clear_password()
-
-            try:
-                json_str = FileService.open(path, password)
-            except ValueError:
-                dialog.set_error_message("密码错误，请重试")
-                continue  # 保持在对话框内重试
-
-            password_correct = password
-            break
-        else:
-            return  # 用户取消了对话框
+        # 复用密码重试逻辑
+        json_str, password_correct = self._open_with_password_retry(path)
+        if json_str is None:
+            return
 
         root = Serializer.from_json(json_str)
         if self._tree_model is not None:
