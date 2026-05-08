@@ -465,6 +465,9 @@ class MainWindow(QMainWindow):
         paths = settings.value(self.SETTINGS_KEY, [])
         if paths is None:
             return []
+        # QSettings 可能将单元素列表退化为字符串 (WR-08)
+        if isinstance(paths, str):
+            paths = [paths]
         # 过滤不存在的文件 (D-42)
         valid = [p for p in paths if isinstance(p, str) and os.path.isfile(p)]
         # 如有移除，回写更新
@@ -479,6 +482,8 @@ class MainWindow(QMainWindow):
         paths = settings.value(self.SETTINGS_KEY, [])
         if paths is None:
             paths = []
+        if isinstance(paths, str):
+            paths = [paths]
         # 去重: 移到顶部 (D-44)
         path = os.path.abspath(path)
         if path in paths:
@@ -498,6 +503,8 @@ class MainWindow(QMainWindow):
         paths = settings.value(self.SETTINGS_KEY, [])
         if paths is None:
             return
+        if isinstance(paths, str):
+            paths = [paths]
         path = os.path.abspath(path)
         if path in paths:
             paths.remove(path)
