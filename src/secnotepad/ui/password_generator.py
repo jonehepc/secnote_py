@@ -1,5 +1,6 @@
 """密码生成器子对话框 (D-33, CRYPT-04)"""
 
+import random
 import secrets
 import string
 
@@ -86,15 +87,32 @@ class PasswordGenerator(QDialog):
             self._preview.setPlaceholderText("请至少选择一种字符类型")
 
     def _generate(self):
-        """使用 secrets 模块生成随机密码。"""
-        chars = ""
+        """使用 secrets 模块生成随机密码，确保每个选中字符集至少包含一个字符。"""
+        enabled_charsets = []
+        combined = ""
         for key, charset in self.CHARSETS.items():
             if self._checkboxes[key].isChecked():
-                chars += charset
-        if not chars:
+                enabled_charsets.append(charset)
+                combined += charset
+        if not combined:
             return
         length = self._spin_length.value()
-        self._password = "".join(secrets.choice(chars) for _ in range(length))
+        # 如果长度不够覆盖所有选中字符集，随机选取其中几个
+        if length < len(enabled_charsets):
+            selected = random.sample(enabled_charsets, length)
+            guaranteed = [secrets.choice(cs) for cs in selected]
+        else:
+            # 至少从每个选中的字符集中取一个字符
+            guaranteed = [secrets.choice(cs) for cs in enabled_charsets]
+            # 剩余位从总池中随机选取
+            remaining = length - len(enabled_charsets)
+            if remaining > 0:
+                extra = [secrets.choice(combined) for _ in range(remaining)]
+                guaranteed.extend(extra)
+        # 打乱顺序，避免可预测的前缀模式
+        result = list(guaranteed)
+        random.shuffle(result)
+        self._password = "".join(result)
         self._preview.setText(self._password)
 
     def _on_accept(self):
