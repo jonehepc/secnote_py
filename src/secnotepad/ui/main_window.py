@@ -6,11 +6,14 @@ from PySide6.QtGui import QAction, QKeySequence, QCloseEvent
 from PySide6.QtWidgets import (QMainWindow, QWidget, QSplitter,
                                 QTreeView, QListView, QStackedWidget,
                                 QStyle, QVBoxLayout, QMessageBox,
-                                QFileDialog, QDialog)
-from PySide6.QtCore import Qt
+                                QFileDialog, QDialog,
+                                QTextEdit, QLabel, QAbstractItemView)
+from PySide6.QtCore import Qt, QModelIndex
 
 from ..model.snote_item import SNoteItem
 from ..model.tree_model import TreeModel
+from ..model.section_filter_proxy import SectionFilterProxy
+from ..model.page_list_model import PageListModel
 from .welcome_widget import WelcomeWidget
 from ..crypto.file_service import FileService
 from ..model.serializer import Serializer
@@ -28,6 +31,13 @@ class MainWindow(QMainWindow):
         # 当前笔记本数据 (Phase 2 后持久化)
         self._root_item: SNoteItem = None
         self._tree_model: TreeModel = None
+
+        # ── 导航系统状态 (Phase 3) ──
+        self._section_filter: SectionFilterProxy = None
+        self._page_list_model: PageListModel = None
+        self._editor_preview: QTextEdit = None
+        self._editor_stack: QStackedWidget = None
+        self._editor_placeholder_label: QLabel = None
 
         # ── 文件操作状态 (Phase 2) ──
         self._is_dirty: bool = False
@@ -157,8 +167,8 @@ class MainWindow(QMainWindow):
         self._list_view.setMinimumWidth(100)
         splitter.addWidget(self._list_view)          # 中间
 
-        self._editor_placeholder = QWidget()
-        splitter.addWidget(self._editor_placeholder)  # 右侧
+        self._setup_editor_area()
+        splitter.addWidget(self._editor_stack)         # 右侧
 
         splitter.setSizes([200, 250, 750])           # D-12
         splitter.setCollapsible(0, True)             # D-13: 左可折叠
@@ -168,6 +178,130 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._welcome)          # index 0
         self._stack.addWidget(splitter)               # index 1
         self._stack.setCurrentIndex(0)                # 默认欢迎页
+
+    # ── 编辑区 (Phase 3) ──
+
+    def _setup_editor_area(self):
+        """创建右侧编辑区: 只读预览 + placeholder 堆叠 (D-62, D-63)。
+
+        使用 QStackedWidget 切换两种状态:
+          index 0 = QTextEdit (只读 HTML 预览)
+          index 1 = QLabel ("请在页面列表中选择一个页面")
+        默认为 placeholder (index 1)。
+        """
+        self._editor_preview = QTextEdit()
+        self._editor_preview.setReadOnly(True)
+
+        self._editor_placeholder_label = QLabel(
+            "请在页面列表中选择一个页面"
+        )
+        self._editor_placeholder_label.setAlignment(Qt.AlignCenter)
+        self._editor_placeholder_label.setStyleSheet(
+            "color: #888; font-size: 14px;"
+        )
+
+        self._editor_stack = QStackedWidget()
+        self._editor_stack.addWidget(self._editor_preview)          # index 0
+        self._editor_stack.addWidget(self._editor_placeholder_label)  # index 1
+        self._editor_stack.setCurrentIndex(1)  # 默认显示 placeholder
+
+    # ── 导航系统 (Phase 3) ──
+
+    def _setup_navigation(self):
+        """Phase 3: 设置导航系统 — 代理模型、页面列表、信号连接、初始状态。
+
+        必须在 _tree_model 存在且 _tree_view / _list_view 可见之后调用。
+        即在 _on_new_notebook / _on_open_notebook / _on_open_recent 中
+        设置 TreeModel 后调用。
+
+        实现 D-49~D-54, D-59, D-62, D-63。
+        """
+        # --- 1. SectionFilterProxy: 过滤分区树仅显示 section (D-49) ---
+        self._section_filter = SectionFilterProxy(self)
+        self._section_filter.setSourceModel(self._tree_model)
+        self._tree_view.setModel(self._section_filter)
+
+        # D-59: 原地编辑 — 必须在 setModel 之后设置 (Pitfall 2)
+        self._tree_view.setEditTriggers(
+            QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
+        )
+
+        # --- 2. PageListModel: 平铺显示页面的列表 (D-50, D-54) ---
+        self._page_list_model = PageListModel(self)
+        self._list_view.setModel(self._page_list_model)
+
+        # D-59: 原地编辑 — 必须在 setModel 之后设置 (Pitfall 2)
+        self._list_view.setEditTriggers(
+            QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
+        )
+
+        # --- 3. 选择信号连接 (D-51, D-62, Pitfall 3) ---
+        # 必须在 setModel 之后获取 selectionModel (Pitfall 3)
+        self._tree_selection = self._tree_view.selectionModel()
+        self._tree_selection.currentChanged.connect(
+            self._on_tree_current_changed
+        )
+
+        self._page_selection = self._list_view.selectionModel()
+        self._page_selection.currentChanged.connect(
+            self._on_page_current_changed
+        )
+
+        # --- 4. 初始导航状态 (D-52, D-53) ---
+        self._initialize_navigation_state()
+
+    def _on_tree_current_changed(self, current: QModelIndex,
+                                 previous: QModelIndex):
+        """分区选择变化 → 更新页面列表 (D-51)。
+
+        从 proxy 索引映射回源模型索引，获取 SNoteItem(section)，
+        调用 PageListModel.set_section() 刷新列表。
+        每次分区切换时重置编辑区为 placeholder (D-63)。
+        """
+        source_index = self._section_filter.mapToSource(current)
+        if source_index.isValid():
+            section_item = source_index.internalPointer()
+            self._page_list_model.set_section(section_item)
+        else:
+            self._page_list_model.set_section(None)
+        self._show_editor_placeholder()
+
+    def _on_page_current_changed(self, current: QModelIndex,
+                                 previous: QModelIndex):
+        """页面选择变化 → 显示只读预览 (D-62, D-63)。
+
+        获取 SNoteItem(note) 后调用 QTextEdit.setHtml() 显示内容。
+        无效选择（取消选择）时显示 placeholder。
+        """
+        note = self._page_list_model.note_at(current)
+        if note is not None:
+            self._editor_preview.setHtml(note.content or "")
+            self._editor_stack.setCurrentIndex(0)
+        else:
+            self._show_editor_placeholder()
+
+    def _show_editor_placeholder(self):
+        """显示 placeholder 提示文字 (D-63)。"""
+        self._editor_preview.clear()
+        self._editor_stack.setCurrentIndex(1)
+
+    def _initialize_navigation_state(self):
+        """打开笔记本后展开分区树第一层并自动选中第一个子分区 (D-52, D-53)。
+
+        遍历代理模型的根级行，仅 expand(index) — 不递归展开 (D-53)。
+        然后选中根节点的第一个子分区 (D-52)。
+        """
+        proxy = self._section_filter
+        # D-53: 仅展开第一层（根节点的直接子节点）
+        for row in range(proxy.rowCount()):
+            index = proxy.index(row, 0, QModelIndex())
+            self._tree_view.expand(index)
+
+        # D-52: 自动选中第一个子分区
+        if proxy.rowCount() > 0:
+            first_index = proxy.index(0, 0, QModelIndex())
+            if first_index.isValid():
+                self._tree_view.setCurrentIndex(first_index)
 
     # ── 状态栏 ──
 
@@ -313,6 +447,7 @@ class MainWindow(QMainWindow):
         self._root_item = SNoteItem.new_section("根分区")
         self._tree_model = TreeModel(self._root_item, self)
         self._tree_view.setModel(self._tree_model)
+        self._setup_navigation()                     # Phase 3: 导航系统
         self._stack.setCurrentIndex(1)               # 切换到三栏布局
 
         # Phase 2: 启用保存/另存为 (D-47: 新建笔记本不脏)
@@ -357,6 +492,7 @@ class MainWindow(QMainWindow):
         self._root_item = root
         self._tree_model = TreeModel(self._root_item, self)
         self._tree_view.setModel(self._tree_model)
+        self._setup_navigation()                     # Phase 3: 导航系统
 
         # 更新状态
         self._current_path = path
@@ -555,6 +691,7 @@ class MainWindow(QMainWindow):
         self._root_item = root
         self._tree_model = TreeModel(self._root_item, self)
         self._tree_view.setModel(self._tree_model)
+        self._setup_navigation()                     # Phase 3: 导航系统
 
         self._current_path = path
         self._current_password = password_correct
