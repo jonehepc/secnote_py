@@ -231,7 +231,8 @@ class MainWindow(QMainWindow):
         默认为 placeholder (index 1)。
         """
         self._editor_preview = QTextEdit()
-        self._editor_preview.setReadOnly(True)
+        self._editor_preview.setReadOnly(False)
+        self._editor_preview.textChanged.connect(self._on_editor_text_changed)
 
         self._editor_placeholder_label = QLabel(
             "请在页面列表中选择一个页面"
@@ -333,8 +334,7 @@ class MainWindow(QMainWindow):
         """
         note = self._page_list_model.note_at(current)
         if note is not None:
-            self._editor_preview.setHtml(note.content or "")
-            self._editor_stack.setCurrentIndex(0)
+            self._show_note_in_editor(note)
         else:
             self._show_editor_placeholder()
 
@@ -342,6 +342,30 @@ class MainWindow(QMainWindow):
         """显示 placeholder 提示文字 (D-63)。"""
         self._editor_preview.clear()
         self._editor_stack.setCurrentIndex(1)
+
+    def _on_editor_text_changed(self):
+        """编辑器内容变化时同步回当前页面并标记脏状态。"""
+        if self._editor_stack.currentIndex() != 0:
+            return
+        if self._page_list_model is None:
+            return
+        current = self._list_view.currentIndex()
+        note = self._page_list_model.note_at(current)
+        if note is None:
+            return
+        html = self._editor_preview.toHtml()
+        if note.content != html:
+            note.content = html
+            self.mark_dirty()
+
+    def _show_note_in_editor(self, note: SNoteItem):
+        """显示页面内容到右侧编辑器，避免触发无意义脏标记。"""
+        self._editor_preview.blockSignals(True)
+        try:
+            self._editor_preview.setHtml(note.content or "")
+        finally:
+            self._editor_preview.blockSignals(False)
+        self._editor_stack.setCurrentIndex(0)
 
     def _setup_tree_context_menu(self):
         """分区树右键菜单 (D-56)。
@@ -376,7 +400,11 @@ class MainWindow(QMainWindow):
     def _setup_page_context_menu(self):
         """页面列表右键菜单 (D-56)。"""
         self._list_view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._list_view.viewport().setContextMenuPolicy(Qt.CustomContextMenu)
         self._list_view.customContextMenuRequested.connect(
+            self._on_page_context_menu
+        )
+        self._list_view.viewport().customContextMenuRequested.connect(
             self._on_page_context_menu
         )
 
@@ -386,12 +414,13 @@ class MainWindow(QMainWindow):
         proxy_index = self._list_view.indexAt(pos)
 
         if proxy_index.isValid():
+            self._list_view.setCurrentIndex(proxy_index)
             menu.addAction("重命名页面", self._on_rename_page)
             menu.addAction("删除页面", self._on_delete_page)
         else:
             menu.addAction("新建页面", self._on_new_page)
 
-        menu.exec(self._list_view.viewport().mapToGlobal(pos))
+        menu.popup(self._list_view.viewport().mapToGlobal(pos))
 
     def _setup_navigation_shortcuts(self):
         """键盘快捷键 (D-57): Delete 删除、F2 重命名、Ctrl+N 新建页面。
@@ -412,11 +441,7 @@ class MainWindow(QMainWindow):
         self._list_view.addAction(self._act_rename)
         self._act_rename.triggered.connect(self._on_rename_selected)
 
-        # Ctrl+N — 仅页面列表聚焦时新建页面
-        self._act_new_page = QAction("新建页面", self)
-        self._act_new_page.setShortcut(QKeySequence("Ctrl+N"))
-        self._list_view.addAction(self._act_new_page)
-        self._act_new_page.triggered.connect(self._on_new_page)
+        self._list_view.setFocusPolicy(Qt.StrongFocus)
 
     def _initialize_navigation_state(self):
         """打开笔记本后展开分区树第一层并自动选中第一个子分区 (D-52, D-53)。

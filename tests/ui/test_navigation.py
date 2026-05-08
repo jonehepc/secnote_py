@@ -2,7 +2,9 @@
 
 import pytest
 from PySide6.QtCore import Qt, QModelIndex
-from PySide6.QtWidgets import QStackedWidget, QTextEdit
+from PySide6.QtWidgets import QStackedWidget, QTextEdit, QMenu
+
+from PySide6.QtTest import QTest
 
 from src.secnotepad.ui.main_window import MainWindow
 
@@ -43,10 +45,10 @@ class TestNavigationSetup:
             is window_with_notebook._page_list_model
         )
 
-    def test_editor_preview_is_readonly(self, window_with_notebook):
-        """Editor QTextEdit 是只读的 (D-62)。"""
+    def test_editor_preview_is_editable(self, window_with_notebook):
+        """右侧 QTextEdit 可编辑，用于页面正文编辑。"""
         assert isinstance(window_with_notebook._editor_preview, QTextEdit)
-        assert window_with_notebook._editor_preview.isReadOnly()
+        assert window_with_notebook._editor_preview.isReadOnly() is False
 
     def test_editor_defaults_to_placeholder(self, window_with_notebook):
         """编辑区默认显示 placeholder (D-63): QStackedWidget index 1。"""
@@ -126,3 +128,88 @@ class TestNavigationCRUD:
     def test_editor_placeholder_when_no_page(self, window_with_notebook):
         """无页面选中时编辑区为 placeholder (D-63)。"""
         assert window_with_notebook._editor_stack.currentIndex() == 1
+
+    def test_page_context_menu_is_bound_on_viewport(self, window_with_notebook):
+        """页面列表右键菜单绑定在 viewport，右键项目区域可触发自定义菜单。"""
+        assert (
+            window_with_notebook._list_view.viewport().contextMenuPolicy()
+            == Qt.CustomContextMenu
+        )
+
+    def test_editor_updates_note_content_and_marks_dirty(self, window_with_notebook):
+        """编辑右侧文本后同步回当前页面并置脏。"""
+        window_with_notebook._on_new_root_section()
+        window_with_notebook._on_new_page()
+
+        current = window_with_notebook._list_view.currentIndex()
+        note = window_with_notebook._page_list_model.note_at(current)
+        assert note is not None
+
+        window_with_notebook._is_dirty = False
+        window_with_notebook._editor_preview.setFocus()
+        window_with_notebook._editor_preview.clear()
+        QTest.keyClicks(window_with_notebook._editor_preview, "hello")
+
+        assert "hello" in note.content
+        assert window_with_notebook._is_dirty is True
+
+    def test_selecting_page_shows_editor(self, window_with_notebook):
+        """选中页面后切换到编辑器页，而不是保持 placeholder。"""
+        window_with_notebook._on_new_root_section()
+        window_with_notebook._on_new_page()
+        assert window_with_notebook._editor_stack.currentIndex() == 0
+
+    def test_page_context_menu_for_item_contains_actions(self, window_with_notebook, monkeypatch):
+        """页面项右键菜单包含重命名/删除动作。"""
+        window_with_notebook._on_new_root_section()
+        window_with_notebook._on_new_page()
+
+        captured = {}
+
+        def fake_exec(self, *args, **kwargs):
+            captured["texts"] = [action.text() for action in self.actions()]
+            return None
+
+        monkeypatch.setattr(QMenu, "popup", fake_exec)
+        index = window_with_notebook._list_view.currentIndex()
+        rect = window_with_notebook._list_view.visualRect(index)
+        window_with_notebook._on_page_context_menu(rect.center())
+
+        assert "重命名页面" in captured["texts"]
+        assert "删除页面" in captured["texts"]
+
+    def test_page_context_menu_selects_clicked_item(self, window_with_notebook, monkeypatch):
+        """右键页面项时会先选中该项，再显示菜单。"""
+        window_with_notebook._on_new_root_section()
+        window_with_notebook._on_new_page()
+
+        captured = {}
+
+        def fake_popup(self, *args, **kwargs):
+            captured["current"] = window_with_notebook._list_view.currentIndex().isValid()
+            return None
+
+        monkeypatch.setattr(QMenu, "popup", fake_popup)
+        index = window_with_notebook._list_view.currentIndex()
+        rect = window_with_notebook._list_view.visualRect(index)
+        window_with_notebook._list_view.clearSelection()
+        window_with_notebook._on_page_context_menu(rect.center())
+
+        assert captured["current"] is True
+
+    def test_page_context_menu_for_blank_contains_new(self, window_with_notebook, monkeypatch):
+        """页面空白区域右键菜单包含新建页面动作。"""
+        window_with_notebook._on_new_root_section()
+        captured = {}
+
+        def fake_exec(self, *args, **kwargs):
+            captured["texts"] = [action.text() for action in self.actions()]
+            return None
+
+        monkeypatch.setattr(QMenu, "popup", fake_exec)
+        window_with_notebook._on_page_context_menu(
+            window_with_notebook._list_view.viewport().rect().bottomRight()
+        )
+
+        assert captured["texts"] == ["新建页面"]
+
