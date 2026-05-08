@@ -7,7 +7,8 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QSplitter,
                                 QTreeView, QListView, QStackedWidget,
                                 QStyle, QVBoxLayout, QMessageBox,
                                 QFileDialog, QDialog,
-                                QTextEdit, QLabel, QAbstractItemView)
+                                QTextEdit, QLabel, QAbstractItemView,
+                                QPushButton, QFrame, QHBoxLayout)
 from PySide6.QtCore import Qt, QModelIndex
 
 from ..model.snote_item import SNoteItem
@@ -38,6 +39,11 @@ class MainWindow(QMainWindow):
         self._editor_preview: QTextEdit = None
         self._editor_stack: QStackedWidget = None
         self._editor_placeholder_label: QLabel = None
+        self._tree_button_bar: QFrame = None
+        self._btn_new_section: QPushButton = None
+        self._btn_new_child_section: QPushButton = None
+        self._page_button_bar: QFrame = None
+        self._btn_new_page: QPushButton = None
 
         # ── 文件操作状态 (Phase 2) ──
         self._is_dirty: bool = False
@@ -161,11 +167,46 @@ class MainWindow(QMainWindow):
 
         self._tree_view = QTreeView()
         self._tree_view.setMinimumWidth(100)
-        splitter.addWidget(self._tree_view)          # 左侧
+        # 左侧容器: 按钮栏 + 分区树 (D-55)
+        left_container = QWidget()
+        left_layout = QVBoxLayout(left_container)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(2)
+        self._tree_button_bar = QFrame()
+        self._tree_button_bar.setFrameShape(QFrame.NoFrame)
+        tree_btn_layout = QHBoxLayout(self._tree_button_bar)
+        tree_btn_layout.setContentsMargins(2, 2, 2, 2)
+        tree_btn_layout.setSpacing(2)
+        self._btn_new_section = QPushButton("新建分区")
+        self._btn_new_child_section = QPushButton("新建子分区")
+        self._btn_new_section.setEnabled(False)
+        self._btn_new_child_section.setEnabled(False)
+        tree_btn_layout.addWidget(self._btn_new_section)
+        tree_btn_layout.addWidget(self._btn_new_child_section)
+        tree_btn_layout.addStretch()
+        left_layout.addWidget(self._tree_button_bar)
+        left_layout.addWidget(self._tree_view)
+        splitter.addWidget(left_container)          # 左侧
 
         self._list_view = QListView()
         self._list_view.setMinimumWidth(100)
-        splitter.addWidget(self._list_view)          # 中间
+        # 中间容器: 按钮栏 + 页面列表 (D-55)
+        mid_container = QWidget()
+        mid_layout = QVBoxLayout(mid_container)
+        mid_layout.setContentsMargins(0, 0, 0, 0)
+        mid_layout.setSpacing(2)
+        self._page_button_bar = QFrame()
+        self._page_button_bar.setFrameShape(QFrame.NoFrame)
+        page_btn_layout = QHBoxLayout(self._page_button_bar)
+        page_btn_layout.setContentsMargins(2, 2, 2, 2)
+        page_btn_layout.setSpacing(2)
+        self._btn_new_page = QPushButton("新建页面")
+        self._btn_new_page.setEnabled(False)
+        page_btn_layout.addWidget(self._btn_new_page)
+        page_btn_layout.addStretch()
+        mid_layout.addWidget(self._page_button_bar)
+        mid_layout.addWidget(self._list_view)
+        splitter.addWidget(mid_container)           # 中间
 
         self._setup_editor_area()
         splitter.addWidget(self._editor_stack)         # 右侧
@@ -247,6 +288,13 @@ class MainWindow(QMainWindow):
             self._on_page_current_changed
         )
 
+        # --- 右键菜单 (D-56) ---
+        self._setup_tree_context_menu()
+        self._setup_page_context_menu()
+
+        # --- 键盘快捷键 (D-57) ---
+        self._setup_navigation_shortcuts()
+
         # --- 4. 初始导航状态 (D-52, D-53) ---
         self._initialize_navigation_state()
 
@@ -284,6 +332,81 @@ class MainWindow(QMainWindow):
         """显示 placeholder 提示文字 (D-63)。"""
         self._editor_preview.clear()
         self._editor_stack.setCurrentIndex(1)
+
+    def _setup_tree_context_menu(self):
+        """分区树右键菜单 (D-56)。
+
+        右键分区节点: 新建子分区、新建页面、重命名分区、删除分区。
+        右键空白区域: 新建分区。
+        """
+        self._tree_view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._tree_view.customContextMenuRequested.connect(
+            self._on_tree_context_menu
+        )
+
+    def _on_tree_context_menu(self, pos):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        proxy_index = self._tree_view.indexAt(pos)
+
+        if proxy_index.isValid():
+            source_index = self._section_filter.mapToSource(proxy_index)
+            # 确认是 section 节点（Proxy 已过滤）
+            menu.addAction("新建子分区", self._on_new_child_section)
+            menu.addAction("新建页面", self._on_new_page_in_section)
+            menu.addSeparator()
+            menu.addAction("重命名分区", self._on_rename_section)
+            menu.addAction("删除分区", self._on_delete_section)
+        else:
+            menu.addAction("新建分区", self._on_new_root_section)
+
+        menu.exec(self._tree_view.viewport().mapToGlobal(pos))
+
+    def _setup_page_context_menu(self):
+        """页面列表右键菜单 (D-56)。"""
+        self._list_view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._list_view.customContextMenuRequested.connect(
+            self._on_page_context_menu
+        )
+
+    def _on_page_context_menu(self, pos):
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        proxy_index = self._list_view.indexAt(pos)
+
+        if proxy_index.isValid():
+            menu.addAction("重命名页面", self._on_rename_page)
+            menu.addAction("删除页面", self._on_delete_page)
+        else:
+            menu.addAction("新建页面", self._on_new_page)
+
+        menu.exec(self._list_view.viewport().mapToGlobal(pos))
+
+    def _setup_navigation_shortcuts(self):
+        """键盘快捷键 (D-57): Delete 删除、F2 重命名、Ctrl+N 新建页面。
+
+        QAction + addAction 绑定到视图——Qt 自动处理焦点上下文。
+        """
+        # Delete — 上下文感知
+        self._act_delete = QAction("删除", self)
+        self._act_delete.setShortcut(QKeySequence.StandardKey.Delete)
+        self._tree_view.addAction(self._act_delete)
+        self._list_view.addAction(self._act_delete)
+        self._act_delete.triggered.connect(self._on_delete_selected)
+
+        # F2 重命名
+        self._act_rename = QAction("重命名", self)
+        self._act_rename.setShortcut(QKeySequence("F2"))
+        self._tree_view.addAction(self._act_rename)
+        self._list_view.addAction(self._act_rename)
+        self._act_rename.triggered.connect(self._on_rename_selected)
+
+        # Ctrl+N — 仅页面列表聚焦时新建页面
+        self._act_new_page = QAction("新建页面", self)
+        self._act_new_page.setShortcut(QKeySequence("Ctrl+N"))
+        self._list_view.addAction(self._act_new_page)
+        self._act_new_page.triggered.connect(self._on_new_page)
 
     def _initialize_navigation_state(self):
         """打开笔记本后展开分区树第一层并自动选中第一个子分区 (D-52, D-53)。
