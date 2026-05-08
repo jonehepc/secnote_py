@@ -713,16 +713,14 @@ for row in range(proxy_model.rowCount()):
 
 **If this table is empty:** Not applicable — assumptions exist and are flagged above.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **SectionFilterProxy.filterAcceptsRow 是否需要处理 source_model 为 None 的情况？**
+1. **SectionFilterProxy.filterAcceptsRow 是否需要处理 source_model 为 None 的情况？** — RESOLVED: 在 filterAcceptsRow 开头添加 `if self.sourceModel() is None: return False` 防御性检查。Plan 03-01 中已实施。
    - What we know: 在 `_on_new_notebook` 和 `_on_open_notebook` 中，Proxy 总是在 setSourceModel 之后才设置给 View，所以 source_model 不应为 None
-   - What's unclear: 如果在 setSourceModel 之前 View 就触发了过滤评估
    - Recommendation: 在 filterAcceptsRow 开头添加 `if self.sourceModel() is None: return False` 防御性检查
 
-2. **QTreeView.expandRecursively(index, depth=1) 是否只在 Qt 6.5+ 可用？**
+2. **QTreeView.expandRecursively(index, depth=1) 是否只在 Qt 6.5+ 可用？** — RESOLVED: 使用 `expand(index)` 展开根级子节点（不递归），明确满足 D-53 的"仅展开第一层"需求。Plan 03-03 中已实施。
    - What we know: Context7 文档显示 `expandRecursively(index, depth)` 方法存在
-   - What's unclear: `depth` 参数是否是 Qt6 新增的（Qt5 只有 `expandRecursively()` 无参数版本）
    - Recommendation: 使用 `expand(index)` 展开根级子节点（不递归），这是最安全的方式，也明确满足 D-53 的"仅展开第一层"需求
 
 ## Environment Availability
