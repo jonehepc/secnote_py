@@ -64,6 +64,15 @@
 3. 用户可创建/重命名/删除分区，删除含子内容的区时给出警告
 4. 用户可在分区下创建/重命名/删除页面，点击页面在编辑区加载内容
 
+**计划：** 4 个计划 | 2 个 TDD + 2 个标准执行
+
+**计划列表：**
+- [ ] 03-01-PLAN.md — (TDD) SectionFilterProxy：QSortFilterProxyModel 子类，过滤分区树仅显示 section 节点
+- [ ] 03-02-PLAN.md — (TDD) PageListModel：QAbstractListModel 子类，平铺展示分区下的页面列表
+- [ ] 03-03-PLAN.md — TreeModel 增强 (setData) + MainWindow 导航系统骨架搭建（模型绑定、信号连接、编辑预览）
+- [ ] 03-04-PLAN.md — 导航 CRUD 操作：上下文菜单、键盘快捷键、创建/重命名/删除分区和页面、删除确认
+
+
 ### Phase 4：富文本编辑器
 
 **目标：** 实现完整的富文本编辑功能，包括格式工具栏和所有格式化操作。
