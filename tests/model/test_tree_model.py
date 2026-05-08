@@ -401,3 +401,67 @@ class TestTreeModelHiddenRoot:
         """根节点内部存储不变."""
         model = TreeModel(root_item)
         assert model._root_item is root_item
+
+
+# ── setData() tests ──
+
+
+class TestTreeModelSetData:
+    """TreeModel.setData() 测试 — 原地重命名分区标题 (D-59, D-60)."""
+
+    def test_setdata_valid_edit_role(self, sample_tree):
+        """setData(valid_index, "新名称", EditRole) → True, title 更新."""
+        model = TreeModel(sample_tree)
+        work = model.index(0, 0, QModelIndex())
+        original_title = sample_tree.children[0].title
+
+        result = model.setData(work, "新名称", Qt.EditRole)
+        assert result is True
+        assert model.data(work, Qt.DisplayRole) == "新名称"
+        assert model.data(work, Qt.EditRole) == "新名称"
+        assert sample_tree.children[0].title == "新名称"
+        # Verify title was actually changed from original
+        assert original_title != "新名称"
+
+    def test_setdata_empty_string_rejected(self, sample_tree):
+        """setData(valid_index, "", EditRole) → False, title 不变 (D-60)."""
+        model = TreeModel(sample_tree)
+        work = model.index(0, 0, QModelIndex())
+        original_title = sample_tree.children[0].title
+
+        result = model.setData(work, "", Qt.EditRole)
+        assert result is False
+        assert model.data(work, Qt.DisplayRole) == original_title
+
+    def test_setdata_whitespace_only_rejected(self, sample_tree):
+        """setData(valid_index, "   ", EditRole) → False, title 不变 (D-60)."""
+        model = TreeModel(sample_tree)
+        work = model.index(0, 0, QModelIndex())
+        original_title = sample_tree.children[0].title
+
+        result = model.setData(work, "   ", Qt.EditRole)
+        assert result is False
+        assert model.data(work, Qt.DisplayRole) == original_title
+
+    def test_setdata_non_edit_role_rejected(self, sample_tree):
+        """setData(valid_index, "test", DisplayRole) → False."""
+        model = TreeModel(sample_tree)
+        work = model.index(0, 0, QModelIndex())
+
+        result = model.setData(work, "test", Qt.DisplayRole)
+        assert result is False
+
+    def test_setdata_invalid_index_rejected(self, sample_tree):
+        """setData(invalid_index, "test", EditRole) → False."""
+        model = TreeModel(sample_tree)
+
+        result = model.setData(QModelIndex(), "test", Qt.EditRole)
+        assert result is False
+
+    def test_flags_includes_item_is_editable(self, sample_tree):
+        """flags(valid_index) 包含 Qt.ItemIsEditable."""
+        model = TreeModel(sample_tree)
+        work = model.index(0, 0, QModelIndex())
+
+        flags = model.flags(work)
+        assert flags & Qt.ItemIsEditable
