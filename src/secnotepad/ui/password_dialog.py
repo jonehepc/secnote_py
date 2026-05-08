@@ -218,10 +218,14 @@ class PasswordDialog(QDialog):
             return 67 + min(33, int((entropy - 60) / 40 * 33)), "强"
 
     def _add_eye_toggle(self, line_edit: QLineEdit):
-        """在 QLineEdit 右侧添加眼睛图标切换密码可见性 (D-37)。"""
+        """在 QLineEdit 右侧添加眼睛图标切换密码可见性 (D-37)。
+
+        Note: Qt 无标准眼睛图标，使用显示/隐藏视觉替代。
+        如需眼睛图标，应使用自定义资源文件 (QRC)。
+        """
         action = QAction(line_edit)
         action.setCheckable(True)
-        icon = self.style().standardIcon(QStyle.SP_DialogApplyButton)
+        icon = self.style().standardIcon(QStyle.SP_FileDialogContentsView)
         action.setIcon(icon)
         action.triggered.connect(lambda checked: line_edit.setEchoMode(
             QLineEdit.Normal if checked else QLineEdit.Password
