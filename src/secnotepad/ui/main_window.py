@@ -260,9 +260,23 @@ class MainWindow(QMainWindow):
 
     def _on_new_notebook(self):
         """新建空白笔记本 (D-14)"""
-        if self._root_item is not None:
-            # Phase 3 TODO: check dirty flag and show confirmation dialog
-            pass
+        if self._root_item is not None and self._is_dirty:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("未保存的更改")
+            msg_box.setText("当前笔记本有未保存的更改。是否在创建新笔记本前保存？")
+            msg_box.setIcon(QMessageBox.Question)
+            btn_save = msg_box.addButton("保存", QMessageBox.AcceptRole)
+            btn_discard = msg_box.addButton("不保存", QMessageBox.DestructiveRole)
+            btn_cancel = msg_box.addButton("取消", QMessageBox.RejectRole)
+            msg_box.setDefaultButton(btn_save)
+            msg_box.exec()
+            clicked = msg_box.clickedButton()
+            if clicked == btn_save:
+                self._on_save()
+                if self._is_dirty:
+                    return
+            elif clicked == btn_cancel:
+                return
         if self._tree_model is not None:
             self._tree_model.deleteLater()
         self._root_item = SNoteItem.new_section("根分区")
