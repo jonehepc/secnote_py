@@ -89,21 +89,21 @@ class TreeModel(QAbstractItemModel):
              role: int = Qt.DisplayRole):
         """返回索引处的数据显示。
 
-        当前仅支持 DisplayRole（返回 title），
+        DisplayRole 和 EditRole 均返回 title。
         后续 Phase 可添加 DecorationRole、ToolTipRole 等。
         """
         if not index.isValid():
             return None
 
         item: SNoteItem = index.internalPointer()
-        if role == Qt.DisplayRole:
+        if role in (Qt.DisplayRole, Qt.EditRole):
             return item.title
         return None
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlags:
         if not index.isValid():
             return Qt.NoItemFlags
-        return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable
 
     def headerData(self, section: int,
                    orientation: Qt.Orientation,
@@ -180,4 +180,23 @@ class TreeModel(QAbstractItemModel):
         self.beginRemoveRows(parent_idx, row, row)
         del parent_item.children[row]
         self.endRemoveRows()
+        return True
+
+    def setData(self, index: QModelIndex, value,
+                role: int = Qt.EditRole) -> bool:
+        """重命名分区标题 (D-59, D-60: 拒绝空名称)。
+
+        Phase 3 添加，支持原地编辑 (EditRole)。
+        修改 SNoteItem.title 并触发 dataChanged 信号使视图更新。
+        """
+        if role != Qt.EditRole:
+            return False
+        if not index.isValid():
+            return False
+        # D-60: 拒绝空名称和纯空格
+        if not isinstance(value, str) or value.strip() == "":
+            return False
+        item: SNoteItem = index.internalPointer()
+        item.title = value.strip()
+        self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole])
         return True
