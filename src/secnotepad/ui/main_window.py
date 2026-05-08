@@ -212,6 +212,8 @@ class MainWindow(QMainWindow):
         self._current_password = ""
         self._is_dirty = False
         self._current_path = ""
+        self._root_item = None
+        self._tree_model = None
 
     def _confirm_discard_changes(self) -> bool:
         """检查脏状态，如有未保存更改则弹出确认对话框。
