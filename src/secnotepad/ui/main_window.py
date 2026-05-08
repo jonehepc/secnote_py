@@ -213,6 +213,31 @@ class MainWindow(QMainWindow):
         self._is_dirty = False
         self._current_path = ""
 
+    def _confirm_discard_changes(self) -> bool:
+        """检查脏状态，如有未保存更改则弹出确认对话框。
+
+        Returns:
+            True 表示可以继续（用户选择保存或丢弃），False 表示取消。
+        """
+        if self._root_item is not None and self._is_dirty:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("未保存的更改")
+            msg_box.setText("当前笔记本有未保存的更改。是否在继续前保存？")
+            msg_box.setIcon(QMessageBox.Question)
+            btn_save = msg_box.addButton("保存", QMessageBox.AcceptRole)
+            btn_discard = msg_box.addButton("不保存", QMessageBox.DestructiveRole)
+            btn_cancel = msg_box.addButton("取消", QMessageBox.RejectRole)
+            msg_box.setDefaultButton(btn_save)
+            msg_box.exec()
+            clicked = msg_box.clickedButton()
+            if clicked == btn_save:
+                self._on_save()
+                if self._is_dirty:
+                    return False
+            elif clicked == btn_cancel:
+                return False
+        return True
+
     # ── 脏标志管理 (D-45) ──
 
     def mark_dirty(self):
@@ -304,6 +329,9 @@ class MainWindow(QMainWindow):
 
         密码错误时在对话框内显示错误提示并允许重试 (D-35)。
         """
+        if not self._confirm_discard_changes():
+            return
+
         path, _ = QFileDialog.getOpenFileName(
             self, "打开加密笔记本", "",
             "SecNotepad 加密笔记本 (*.secnote)",
@@ -478,6 +506,9 @@ class MainWindow(QMainWindow):
         if not os.path.isfile(path):
             # 文件已不存在，从最近列表中移除
             self._remove_recent_file(path)
+            return
+
+        if not self._confirm_discard_changes():
             return
 
         # 复用打开流程的密码重试循环
