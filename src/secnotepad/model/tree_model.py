@@ -197,6 +197,9 @@ class TreeModel(QAbstractItemModel):
         if not isinstance(value, str) or value.strip() == "":
             return False
         item: SNoteItem = index.internalPointer()
-        item.title = value.strip()
+        new_title = value.strip()
+        if item.title == new_title:
+            return False
+        item.title = new_title
         self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole])
         return True

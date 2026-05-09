@@ -49,7 +49,7 @@ class MainWindow(QMainWindow):
         self._page_selection = None
         self._act_delete: QAction | None = None
         self._act_rename: QAction | None = None
-        self._shortcut_new_page: QShortcut | None = None
+        self._shortcut_ctrl_n: QShortcut | None = None
 
         # ── 文件操作状态 (Phase 2) ──
         self._is_dirty: bool = False
@@ -85,7 +85,6 @@ class MainWindow(QMainWindow):
         file_menu = mb.addMenu("文件(&F)")
 
         self._act_new = QAction("新建(&N)", self)
-        self._act_new.setShortcut(QKeySequence("Ctrl+N"))
         file_menu.addAction(self._act_new)
 
         self._act_open = QAction("打开(&O)...", self)
@@ -366,14 +365,14 @@ class MainWindow(QMainWindow):
                 model.dataChanged.disconnect(self._on_structure_data_changed)
             except (RuntimeError, TypeError, AttributeError):
                 pass
-        if self._shortcut_new_page is not None:
+        if self._shortcut_ctrl_n is not None:
             try:
-                self._shortcut_new_page.activated.disconnect(self._on_new_page)
+                self._shortcut_ctrl_n.activated.disconnect(self._on_ctrl_n)
             except (RuntimeError, TypeError):
                 pass
-            self._shortcut_new_page.setParent(None)
-            self._shortcut_new_page.deleteLater()
-            self._shortcut_new_page = None
+            self._shortcut_ctrl_n.setParent(None)
+            self._shortcut_ctrl_n.deleteLater()
+            self._shortcut_ctrl_n = None
         for action in (self._act_delete, self._act_rename):
             if action is None:
                 continue
@@ -446,8 +445,12 @@ class MainWindow(QMainWindow):
 
     def _show_editor_placeholder(self):
         """显示 placeholder 提示文字 (D-63)。"""
-        self._editor_preview.clear()
         self._editor_stack.setCurrentIndex(1)
+        self._editor_preview.blockSignals(True)
+        try:
+            self._editor_preview.clear()
+        finally:
+            self._editor_preview.blockSignals(False)
 
     def _on_editor_text_changed(self):
         """编辑器内容变化时同步回当前页面并标记脏状态。"""
@@ -491,7 +494,7 @@ class MainWindow(QMainWindow):
         proxy_index = self._tree_view.indexAt(pos)
 
         if proxy_index.isValid():
-            source_index = self._section_filter.mapToSource(proxy_index)
+            self._tree_view.setCurrentIndex(proxy_index)
             # 确认是 section 节点（Proxy 已过滤）
             menu.addAction("新建子分区", self._on_new_child_section)
             menu.addAction("新建页面", self._on_new_page_in_section)
@@ -526,7 +529,7 @@ class MainWindow(QMainWindow):
         else:
             menu.addAction("新建页面", self._on_new_page)
 
-        menu.popup(self._list_view.viewport().mapToGlobal(pos))
+        menu.exec(self._list_view.viewport().mapToGlobal(pos))
 
     def _setup_navigation_shortcuts(self):
         """键盘快捷键 (D-57): Delete 删除、F2 重命名、Ctrl+N 新建页面。
@@ -536,6 +539,7 @@ class MainWindow(QMainWindow):
         # Delete — 上下文感知
         self._act_delete = QAction("删除", self)
         self._act_delete.setShortcut(QKeySequence.StandardKey.Delete)
+        self._act_delete.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         self._tree_view.addAction(self._act_delete)
         self._list_view.addAction(self._act_delete)
         self._act_delete.triggered.connect(self._on_delete_selected)
@@ -543,14 +547,30 @@ class MainWindow(QMainWindow):
         # F2 重命名
         self._act_rename = QAction("重命名", self)
         self._act_rename.setShortcut(QKeySequence("F2"))
+        self._act_rename.setShortcutContext(Qt.WidgetWithChildrenShortcut)
         self._tree_view.addAction(self._act_rename)
         self._list_view.addAction(self._act_rename)
         self._act_rename.triggered.connect(self._on_rename_selected)
 
         self._list_view.setFocusPolicy(Qt.StrongFocus)
-        self._shortcut_new_page = QShortcut(QKeySequence("Ctrl+N"), self._list_view)
-        self._shortcut_new_page.setContext(Qt.WidgetShortcut)
-        self._shortcut_new_page.activated.connect(self._on_new_page)
+        self._shortcut_ctrl_n = QShortcut(QKeySequence("Ctrl+N"), self)
+        self._shortcut_ctrl_n.setContext(Qt.WindowShortcut)
+        self._shortcut_ctrl_n.activated.connect(self._on_ctrl_n)
+
+    def _focus_in(self, widget) -> bool:
+        focused = self.focusWidget()
+        return focused is widget or widget.isAncestorOf(focused)
+
+    def _on_ctrl_n(self):
+        if (
+            self._navigation_initialized
+            and self._focus_in(self._list_view)
+            and self._page_list_model is not None
+            and self._page_list_model._section is not None
+        ):
+            self._on_new_page()
+        else:
+            self._on_new_notebook()
 
     def _initialize_navigation_state(self):
         """打开笔记本后展开分区树第一层并自动选中第一个子分区 (D-52, D-53)。
@@ -695,18 +715,16 @@ class MainWindow(QMainWindow):
 
     def _on_delete_selected(self):
         """Delete 键 — 根据焦点视图分发删除 (D-57)。"""
-        focused = self.focusWidget()
-        if focused is self._list_view:
+        if self._focus_in(self._list_view):
             self._on_delete_page()
-        elif focused is self._tree_view:
+        elif self._focus_in(self._tree_view):
             self._on_delete_section()
 
     def _on_rename_selected(self):
         """F2 键 — 根据焦点视图进入编辑模式 (D-57)。"""
-        focused = self.focusWidget()
-        if focused is self._list_view:
+        if self._focus_in(self._list_view):
             self._on_rename_page()
-        elif focused is self._tree_view:
+        elif self._focus_in(self._tree_view):
             self._on_rename_section()
 
     # ── 状态栏 ──
@@ -891,8 +909,12 @@ class MainWindow(QMainWindow):
         if json_str is None:
             return
 
+        # 先完成反序列化校验，避免坏文件破坏当前会话
+        root = self._deserialize_opened_notebook(json_str)
+        if root is None:
+            return
+
         # 更新数据模型
-        root = Serializer.from_json(json_str)
         if self._tree_model is not None:
             self._tree_model.deleteLater()
         self._root_item = root
@@ -1057,7 +1079,7 @@ class MainWindow(QMainWindow):
             path: .secnote 文件路径
 
         Returns:
-            (json_str, password) 解密成功时返回；用户取消时返回 (None, None)
+            (json_str, password) 解密成功时返回；用户取消或读取失败时返回 (None, None)
         """
         dialog = PasswordDialog(mode=PasswordMode.ENTER_PASSWORD, parent=self)
         while dialog.exec() == QDialog.Accepted:
@@ -1067,11 +1089,22 @@ class MainWindow(QMainWindow):
             try:
                 json_str = FileService.open(path, password)
             except ValueError:
-                dialog.set_error_message("密码错误，请重试")
+                dialog.set_error_message("密码错误或文件格式无效，请重试")
                 continue
+            except OSError as e:
+                QMessageBox.critical(self, "打开失败", f"无法读取文件:\n{e}")
+                return None, None
 
             return json_str, password
         return None, None
+
+    def _deserialize_opened_notebook(self, json_str: str) -> SNoteItem | None:
+        """反序列化打开的笔记本，坏数据只提示错误，不改动当前会话。"""
+        try:
+            return Serializer.from_json(json_str)
+        except (ValueError, TypeError, KeyError) as e:
+            QMessageBox.critical(self, "打开失败", f"笔记本数据格式无效:\n{e}")
+            return None
 
     def _on_open_recent(self, path: str):
         """单击最近文件 → 触发打开流程 (D-43)。
@@ -1091,7 +1124,10 @@ class MainWindow(QMainWindow):
         if json_str is None:
             return
 
-        root = Serializer.from_json(json_str)
+        root = self._deserialize_opened_notebook(json_str)
+        if root is None:
+            return
+
         if self._tree_model is not None:
             self._tree_model.deleteLater()
         self._root_item = root

@@ -267,11 +267,27 @@ class TestNavigationCRUD:
         assert window_with_notebook._rename_current_page("再次重命名页面") is True
         assert window_with_notebook._is_dirty is True
 
-    def test_ctrl_n_shortcut_is_scoped_to_page_list(self, window_with_notebook):
-        """页面 Ctrl+N 限定在页面列表，主窗口 Ctrl+N 仍保留。"""
-        assert window_with_notebook._act_new.shortcut().toString() == "Ctrl+N"
-        assert window_with_notebook._shortcut_new_page.parent() is window_with_notebook._list_view
-        assert window_with_notebook._shortcut_new_page.context() == Qt.WidgetShortcut
+    def test_renaming_to_same_title_does_not_mark_dirty(self, window_with_notebook):
+        """标题未变化时不发出结构变更，也不进入脏状态。"""
+        window_with_notebook._on_new_root_section()
+        section_index = window_with_notebook._section_filter.mapToSource(
+            window_with_notebook._tree_view.currentIndex()
+        )
+        section_title = section_index.internalPointer().title
+        window_with_notebook._on_new_page()
+        page_index = window_with_notebook._list_view.currentIndex()
+        page_title = window_with_notebook._page_list_model.note_at(page_index).title
+        window_with_notebook._is_dirty = False
+
+        assert window_with_notebook._tree_model.setData(section_index, section_title, Qt.EditRole) is False
+        assert window_with_notebook._page_list_model.setData(page_index, page_title, Qt.EditRole) is False
+        assert window_with_notebook._is_dirty is False
+
+    def test_ctrl_n_shortcut_is_single_window_dispatcher(self, window_with_notebook):
+        """Ctrl+N 只注册一个窗口级分发器，避免与菜单 QAction 冲突。"""
+        assert window_with_notebook._act_new.shortcut().isEmpty()
+        assert window_with_notebook._shortcut_ctrl_n.parent() is window_with_notebook
+        assert window_with_notebook._shortcut_ctrl_n.context() == Qt.WindowShortcut
 
     def test_reinitialize_navigation_preserves_toolbar_enabled_state(self, window_with_notebook):
         """重复初始化后工具栏按钮仍保持启用。"""
@@ -324,7 +340,7 @@ class TestNavigationCRUD:
             captured["texts"] = [action.text() for action in self.actions()]
             return None
 
-        monkeypatch.setattr(QMenu, "popup", fake_popup)
+        monkeypatch.setattr(QMenu, "exec", fake_popup)
         window_with_notebook._on_page_context_menu(
             window_with_notebook._list_view.viewport().rect().bottomRight()
         )
@@ -341,7 +357,7 @@ class TestNavigationCRUD:
             captured["texts"] = [action.text() for action in self.actions()]
             return None
 
-        monkeypatch.setattr(QMenu, "popup", fake_popup)
+        monkeypatch.setattr(QMenu, "exec", fake_popup)
         index = window_with_notebook._list_view.currentIndex()
         rect = window_with_notebook._list_view.visualRect(index)
         window_with_notebook._on_page_context_menu(rect.center())
@@ -375,11 +391,11 @@ class TestNavigationCRUD:
         window_with_notebook._on_new_child_section()
         assert window_with_notebook._tree_view.currentIndex().isValid()
 
-    def test_reinitialize_navigation_preserves_page_ctrl_n_shortcut(self, window_with_notebook):
-        """重复初始化后页面 Ctrl+N 快捷键仍限定在页面列表。"""
+    def test_reinitialize_navigation_preserves_ctrl_n_dispatcher(self, window_with_notebook):
+        """重复初始化后 Ctrl+N 分发器仍为单一窗口级 shortcut。"""
         window_with_notebook._setup_navigation()
-        assert window_with_notebook._shortcut_new_page.parent() is window_with_notebook._list_view
-        assert window_with_notebook._shortcut_new_page.context() == Qt.WidgetShortcut
+        assert window_with_notebook._shortcut_ctrl_n.parent() is window_with_notebook
+        assert window_with_notebook._shortcut_ctrl_n.context() == Qt.WindowShortcut
 
     def test_reinitialize_navigation_keeps_dirty_mark_on_section_rename(self, window_with_notebook):
         """重复初始化后分区重命名仍会置脏。"""
@@ -711,6 +727,21 @@ class TestNavigationCRUD:
         window_with_notebook._on_new_page()
         assert window_with_notebook._editor_stack.currentIndex() == 0
 
+    def test_show_editor_placeholder_does_not_clear_note_content(self, window_with_notebook):
+        """切换到 placeholder 不会把当前页面正文写空。"""
+        window_with_notebook._on_new_root_section()
+        window_with_notebook._on_new_page()
+        note = window_with_notebook._page_list_model.note_at(
+            window_with_notebook._list_view.currentIndex()
+        )
+        note.content = "<p>keep me</p>"
+        window_with_notebook._is_dirty = False
+
+        window_with_notebook._show_editor_placeholder()
+
+        assert note.content == "<p>keep me</p>"
+        assert window_with_notebook._is_dirty is False
+
     def test_page_context_menu_for_item_contains_actions(self, window_with_notebook, monkeypatch):
         """页面项右键菜单包含重命名/删除动作。"""
         window_with_notebook._on_new_root_section()
@@ -722,7 +753,7 @@ class TestNavigationCRUD:
             captured["texts"] = [action.text() for action in self.actions()]
             return None
 
-        monkeypatch.setattr(QMenu, "popup", fake_exec)
+        monkeypatch.setattr(QMenu, "exec", fake_exec)
         index = window_with_notebook._list_view.currentIndex()
         rect = window_with_notebook._list_view.visualRect(index)
         window_with_notebook._on_page_context_menu(rect.center())
@@ -741,7 +772,7 @@ class TestNavigationCRUD:
             captured["current"] = window_with_notebook._list_view.currentIndex().isValid()
             return None
 
-        monkeypatch.setattr(QMenu, "popup", fake_popup)
+        monkeypatch.setattr(QMenu, "exec", fake_popup)
         index = window_with_notebook._list_view.currentIndex()
         rect = window_with_notebook._list_view.visualRect(index)
         window_with_notebook._list_view.clearSelection()
@@ -758,7 +789,7 @@ class TestNavigationCRUD:
             captured["texts"] = [action.text() for action in self.actions()]
             return None
 
-        monkeypatch.setattr(QMenu, "popup", fake_exec)
+        monkeypatch.setattr(QMenu, "exec", fake_exec)
         window_with_notebook._on_page_context_menu(
             window_with_notebook._list_view.viewport().rect().bottomRight()
         )

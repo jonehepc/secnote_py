@@ -50,13 +50,22 @@ class PageListModel(QAbstractListModel):
         """
         return len(self._notes)
 
+    def _is_valid_note_index(self, index: QModelIndex) -> bool:
+        """Return True when index safely references a note in this model."""
+        return (
+            index.isValid()
+            and index.model() is self
+            and index.column() == 0
+            and 0 <= index.row() < len(self._notes)
+        )
+
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
         """返回索引处的数据显示。
 
         DisplayRole 和 EditRole 均返回页面标题 (D-54: 单列布局)。
         未实现的角色返回 None。
         """
-        if not index.isValid() or index.row() >= len(self._notes):
+        if not self._is_valid_note_index(index):
             return None
 
         note = self._notes[index.row()]
@@ -70,7 +79,7 @@ class PageListModel(QAbstractListModel):
         有效索引: ItemIsEnabled | ItemIsSelectable | ItemIsEditable
         无效索引: NoItemFlags
         """
-        if not index.isValid() or index.row() >= len(self._notes):
+        if not self._is_valid_note_index(index):
             return Qt.NoItemFlags
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable
 
@@ -84,14 +93,17 @@ class PageListModel(QAbstractListModel):
         """
         if role != Qt.EditRole:
             return False
-        if not index.isValid() or index.row() >= len(self._notes):
+        if not self._is_valid_note_index(index):
             return False
         # D-60: reject empty/non-string values
         if not isinstance(value, str) or value.strip() == "":
             return False
 
         note = self._notes[index.row()]
-        note.title = value.strip()
+        new_title = value.strip()
+        if note.title == new_title:
+            return False
+        note.title = new_title
         self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole])
         return True
 
@@ -104,6 +116,8 @@ class PageListModel(QAbstractListModel):
         如果 _section 为 None，返回 False。
         """
         if self._section is None:
+            return False
+        if note.item_type != "note":
             return False
 
         row = len(self._notes)
@@ -119,7 +133,7 @@ class PageListModel(QAbstractListModel):
         同时从 _section.children 源数据和 _notes 缓存中移除。
         返回 True 表示删除成功，False 表示索引无效。
         """
-        if not index.isValid() or index.row() >= len(self._notes):
+        if not self._is_valid_note_index(index):
             return False
 
         row = index.row()
@@ -139,6 +153,6 @@ class PageListModel(QAbstractListModel):
 
         有效索引返回 SNoteItem，无效索引返回 None。
         """
-        if not index.isValid() or index.row() >= len(self._notes):
+        if not self._is_valid_note_index(index):
             return None
         return self._notes[index.row()]
