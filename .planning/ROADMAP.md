@@ -64,7 +64,7 @@
 3. 用户可创建/重命名/删除分区，删除含子内容的区时给出警告
 4. 用户可在分区下创建/重命名/删除页面，点击页面在编辑区加载内容
 
-**计划：** 5 个计划（4 个原计划 + 1 个 gap closure 补充计划）
+**计划：** 6 个计划（4 个原计划 + 2 个 gap closure 补充计划）
 
 **计划列表：**
 - [x] 03-01-PLAN.md — (TDD) SectionFilterProxy：QSortFilterProxyModel 子类，过滤分区树仅显示 section 节点
@@ -72,6 +72,7 @@
 - [x] 03-03-PLAN.md — TreeModel 增强 (setData) + MainWindow 导航系统骨架搭建（模型绑定、信号连接、编辑预览）
 - [x] 03-04-PLAN.md — 导航 CRUD 操作：上下文菜单、键盘快捷键、创建/重命名/删除分区和页面、删除确认
 - [ ] 03-05-PLAN.md — Gap closure：恢复页面列表聚焦时 Ctrl+N 新建页面并补行为测试
+- [ ] 03-06-PLAN.md — Gap closure：修复导航重复绑定、重命名置脏、新建子分区自动选中
 
 
 ### Phase 4：富文本编辑器
@@ -116,4 +117,4 @@
 
 ---
 
-*路线图更新：2026-05-09，Phase 3 gap closure 计划 03-05 创建完毕*
+*路线图更新：2026-05-09，Phase 3 gap closure 计划 03-05/03-06 修订完毕*
