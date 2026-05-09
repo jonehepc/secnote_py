@@ -48,6 +48,8 @@ class PageListModel(QAbstractListModel):
 
         仅计数 item_type == "note" 的子节点，忽略 section 子节点。
         """
+        if parent.isValid():
+            return 0
         return len(self._notes)
 
     def _is_valid_note_index(self, index: QModelIndex) -> bool:

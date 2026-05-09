@@ -61,6 +61,7 @@ class MainWindow(QMainWindow):
         self._setup_tool_bar()
         self._setup_central_area()
         self._setup_status_bar()
+        self._setup_global_shortcuts()
         self._connect_actions()
 
         # 加载最近文件列表到欢迎页 (D-40)
@@ -365,14 +366,6 @@ class MainWindow(QMainWindow):
                 model.dataChanged.disconnect(self._on_structure_data_changed)
             except (RuntimeError, TypeError, AttributeError):
                 pass
-        if self._shortcut_ctrl_n is not None:
-            try:
-                self._shortcut_ctrl_n.activated.disconnect(self._on_ctrl_n)
-            except (RuntimeError, TypeError):
-                pass
-            self._shortcut_ctrl_n.setParent(None)
-            self._shortcut_ctrl_n.deleteLater()
-            self._shortcut_ctrl_n = None
         for action in (self._act_delete, self._act_rename):
             if action is None:
                 continue
@@ -519,17 +512,18 @@ class MainWindow(QMainWindow):
 
     def _on_page_context_menu(self, pos):
         from PySide6.QtWidgets import QMenu
-        menu = QMenu(self)
-        proxy_index = self._list_view.indexAt(pos)
-
-        if proxy_index.isValid():
-            self._list_view.setCurrentIndex(proxy_index)
-            menu.addAction("重命名页面", self._on_rename_page)
-            menu.addAction("删除页面", self._on_delete_page)
-        else:
-            menu.addAction("新建页面", self._on_new_page)
-
-        menu.exec(self._list_view.viewport().mapToGlobal(pos))
+        menu = QMenu()
+        try:
+            proxy_index = self._list_view.indexAt(pos)
+            if proxy_index.isValid():
+                self._list_view.setCurrentIndex(proxy_index)
+                menu.addAction("重命名页面", self._on_rename_page)
+                menu.addAction("删除页面", self._on_delete_page)
+            else:
+                menu.addAction("新建页面", self._on_new_page)
+            menu.exec(self._list_view.viewport().mapToGlobal(pos))
+        finally:
+            menu.deleteLater()
 
     def _setup_navigation_shortcuts(self):
         """键盘快捷键 (D-57): Delete 删除、F2 重命名、Ctrl+N 新建页面。
@@ -553,6 +547,8 @@ class MainWindow(QMainWindow):
         self._act_rename.triggered.connect(self._on_rename_selected)
 
         self._list_view.setFocusPolicy(Qt.StrongFocus)
+
+    def _setup_global_shortcuts(self):
         self._shortcut_ctrl_n = QShortcut(QKeySequence("Ctrl+N"), self)
         self._shortcut_ctrl_n.setContext(Qt.WindowShortcut)
         self._shortcut_ctrl_n.activated.connect(self._on_ctrl_n)

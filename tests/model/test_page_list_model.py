@@ -66,6 +66,11 @@ class TestRowCount:
         model.set_section(section_without_notes)
         assert model.rowCount() == 0
 
+    def test_rowcount_zero_for_valid_parent_index(self, list_model):
+        """扁平 list model 对有效 parent 查询子行数时返回 0。"""
+        parent = list_model.index(0, 0)
+        assert list_model.rowCount(parent) == 0
+
     def test_rowcount_zero_when_no_section(self):
         """场景 3: set_section(None) → rowCount() == 0。"""
         model = PageListModel()
@@ -102,6 +107,18 @@ class TestData:
         idx = list_model.index(0, 0)
         assert list_model.data(idx, Qt.DecorationRole) is None
 
+    def test_wrong_column_returns_none(self, list_model):
+        """column 非 0 的索引不应访问页面数据。"""
+        idx = list_model.createIndex(0, 1)
+        assert list_model.data(idx, Qt.DisplayRole) is None
+
+    def test_external_model_index_returns_none(self, list_model, section_with_notes):
+        """来自其他 model 的索引不应访问本 model 数据。"""
+        other_model = PageListModel()
+        other_model.set_section(section_with_notes)
+        idx = other_model.index(0, 0)
+        assert list_model.data(idx, Qt.DisplayRole) is None
+
 
 # ── flags Tests ──
 
@@ -120,6 +137,11 @@ class TestFlags:
     def test_flags_invalid_none(self, list_model):
         """场景 9: flags(invalid_index) → 返回 Qt.NoItemFlags。"""
         assert list_model.flags(QModelIndex()) == Qt.NoItemFlags
+
+    def test_flags_wrong_column_none(self, list_model):
+        """column 非 0 的索引无标志。"""
+        idx = list_model.createIndex(0, 1)
+        assert list_model.flags(idx) == Qt.NoItemFlags
 
 
 # ── setData Tests ──
@@ -173,6 +195,22 @@ class TestSetData:
         result = list_model.setData(idx, 12345, Qt.EditRole)
         assert result is False
 
+    def test_setdata_reject_wrong_column(self, list_model):
+        """column 非 0 的索引不能修改页面。"""
+        idx = list_model.createIndex(0, 1)
+        original = list_model.data(list_model.index(0, 0), Qt.DisplayRole)
+        assert list_model.setData(idx, "错误修改", Qt.EditRole) is False
+        assert list_model.data(list_model.index(0, 0), Qt.DisplayRole) == original
+
+    def test_setdata_reject_external_model_index(self, list_model, section_with_notes):
+        """来自其他 model 的索引不能修改页面。"""
+        other_model = PageListModel()
+        other_model.set_section(section_with_notes)
+        idx = other_model.index(0, 0)
+        original = list_model.data(list_model.index(0, 0), Qt.DisplayRole)
+        assert list_model.setData(idx, "错误修改", Qt.EditRole) is False
+        assert list_model.data(list_model.index(0, 0), Qt.DisplayRole) == original
+
 
 # ── add_note Tests ──
 
@@ -203,6 +241,15 @@ class TestAddNote:
         assert result is False
         assert model.rowCount() == 0
 
+    def test_add_note_rejects_section_item(self, list_model, section_with_notes):
+        """add_note 只接受 note，拒绝将 section 插入页面列表。"""
+        original_count = list_model.rowCount()
+        section = SNoteItem.new_section("错误分区")
+        result = list_model.add_note(section)
+        assert result is False
+        assert list_model.rowCount() == original_count
+        assert section not in section_with_notes.children
+
 
 # ── remove_note Tests ──
 
@@ -228,6 +275,20 @@ class TestRemoveNote:
         result = list_model.remove_note(QModelIndex())
         assert result is False
 
+    def test_remove_note_rejects_wrong_column(self, list_model):
+        """column 非 0 的索引不能删除页面。"""
+        idx = list_model.createIndex(0, 1)
+        assert list_model.remove_note(idx) is False
+        assert list_model.rowCount() == 2
+
+    def test_remove_note_rejects_external_model_index(self, list_model, section_with_notes):
+        """来自其他 model 的索引不能删除页面。"""
+        other_model = PageListModel()
+        other_model.set_section(section_with_notes)
+        idx = other_model.index(0, 0)
+        assert list_model.remove_note(idx) is False
+        assert list_model.rowCount() == 2
+
 
 # ── note_at Tests ──
 
@@ -246,6 +307,18 @@ class TestNoteAt:
     def test_note_at_invalid_returns_none(self, list_model):
         """场景 21: note_at(invalid_index) → 返回 None。"""
         assert list_model.note_at(QModelIndex()) is None
+
+    def test_note_at_wrong_column_returns_none(self, list_model):
+        """column 非 0 的索引不返回页面。"""
+        idx = list_model.createIndex(0, 1)
+        assert list_model.note_at(idx) is None
+
+    def test_note_at_external_model_index_returns_none(self, list_model, section_with_notes):
+        """来自其他 model 的索引不返回页面。"""
+        other_model = PageListModel()
+        other_model.set_section(section_with_notes)
+        idx = other_model.index(0, 0)
+        assert list_model.note_at(idx) is None
 
 
 # ── set_section Replacement Tests ──

@@ -3,6 +3,7 @@
 import pytest
 from PySide6.QtCore import QCoreApplication, QSettings, Qt
 from PySide6.QtWidgets import QSplitter, QStackedWidget, QMenuBar, QStatusBar
+from PySide6.QtTest import QTest
 
 from src.secnotepad.ui.main_window import MainWindow
 from src.secnotepad.ui.welcome_widget import WelcomeWidget
@@ -226,6 +227,13 @@ class TestMenuBar:
     def test_new_action_uses_ctrl_n_dispatcher(self, window):
         """新建菜单动作不直接注册 Ctrl+N，由窗口级分发器处理。"""
         assert window._act_new.shortcut().isEmpty()
+        assert window._shortcut_ctrl_n.context() == Qt.WindowShortcut
+
+    def test_ctrl_n_creates_notebook_from_welcome_page(self, window):
+        """欢迎页按 Ctrl+N 仍会新建笔记本。"""
+        QTest.keyClick(window, Qt.Key_N, Qt.ControlModifier)
+        assert window._root_item is not None
+        assert window._stack.currentIndex() == 1
 
     def test_exit_action_shortcut(self, window):
         """退出菜单快捷键 Ctrl+Q"""

@@ -198,6 +198,20 @@ class TestNavigationCRUD:
         assert window_with_notebook._list_view.currentIndex().isValid()
         assert window_with_notebook._is_dirty is True
 
+    def test_ctrl_n_creates_notebook_when_editor_focused(self, window_with_notebook, monkeypatch):
+        """非页面列表焦点下 Ctrl+N 分发到新建笔记本。"""
+        called = {"count": 0}
+
+        def fake_new_notebook():
+            called["count"] += 1
+
+        monkeypatch.setattr(window_with_notebook, "_on_new_notebook", fake_new_notebook)
+        window_with_notebook._editor_preview.setFocus()
+
+        QTest.keyClick(window_with_notebook._editor_preview, Qt.Key_N, Qt.ControlModifier)
+
+        assert called["count"] == 1
+
     def test_second_new_notebook_keeps_single_button_binding(self, window_with_notebook):
         """同一窗口会话里再次新建笔记本后，按钮点击仍只创建一次。"""
         window_with_notebook._on_new_notebook()
@@ -741,6 +755,22 @@ class TestNavigationCRUD:
 
         assert note.content == "<p>keep me</p>"
         assert window_with_notebook._is_dirty is False
+
+    def test_delete_key_edits_textedit_not_navigation(self, window_with_notebook):
+        """编辑器焦点下 Delete 不被导航删除快捷键吞掉。"""
+        window_with_notebook._on_new_root_section()
+        window_with_notebook._on_new_page()
+        editor = window_with_notebook._editor_preview
+        editor.setPlainText("abc")
+        cursor = editor.textCursor()
+        cursor.setPosition(1)
+        editor.setTextCursor(cursor)
+        editor.setFocus()
+
+        QTest.keyClick(editor, Qt.Key_Delete)
+
+        assert editor.toPlainText() == "ac"
+        assert window_with_notebook._page_list_model.rowCount() == 1
 
     def test_page_context_menu_for_item_contains_actions(self, window_with_notebook, monkeypatch):
         """页面项右键菜单包含重命名/删除动作。"""
