@@ -1,8 +1,9 @@
 """Tests for MainWindow UI (D-12 to D-20)"""
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, QSettings, Qt
 from PySide6.QtWidgets import QSplitter, QStackedWidget, QMenuBar, QStatusBar
+from PySide6.QtTest import QTest
 
 from src.secnotepad.ui.main_window import MainWindow
 from src.secnotepad.ui.welcome_widget import WelcomeWidget
@@ -12,11 +13,29 @@ from src.secnotepad.ui.welcome_widget import WelcomeWidget
 
 
 @pytest.fixture
-def window(qapp):
+def isolated_recent_files(qapp):
+    """隔离 MainWindow 使用的 QSettings recent_files，避免污染真实状态。"""
+    old_org = QCoreApplication.organizationName()
+    old_app = QCoreApplication.applicationName()
+    QCoreApplication.setOrganizationName("SecNotepadTests")
+    QCoreApplication.setApplicationName("SecNotepadTests")
+    settings = QSettings()
+    settings.clear()
+    try:
+        yield settings
+    finally:
+        settings.clear()
+        QCoreApplication.setOrganizationName(old_org)
+        QCoreApplication.setApplicationName(old_app)
+
+
+@pytest.fixture
+def window(qapp, isolated_recent_files):
     """创建 MainWindow 实例，测试结束后自动清理。"""
     w = MainWindow()
     w.show()
     yield w
+    w._is_dirty = False
     w.close()
     w.deleteLater()
 
@@ -145,14 +164,18 @@ class TestSplitterLayout:
         assert widget.minimumWidth() <= 100
 
     def test_tree_view_exists(self, splitter):
-        """左侧是 QTreeView"""
+        """左侧包含 QTreeView（位于按钮栏下方容器中）。"""
         from PySide6.QtWidgets import QTreeView
-        assert isinstance(splitter.widget(0), QTreeView)
+        container = splitter.widget(0)
+        tree = container.findChild(QTreeView)
+        assert tree is not None
 
     def test_list_view_exists(self, splitter):
-        """中间是 QListView"""
+        """中间包含 QListView（位于按钮栏下方容器中）。"""
         from PySide6.QtWidgets import QListView
-        assert isinstance(splitter.widget(1), QListView)
+        container = splitter.widget(1)
+        list_view = container.findChild(QListView)
+        assert list_view is not None
 
     def test_editor_placeholder_exists(self, splitter):
         """右侧是 QWidget 编辑区占位"""
@@ -201,9 +224,21 @@ class TestMenuBar:
         """帮助菜单灰显"""
         assert window._act_about.isEnabled() is False
 
-    def test_new_action_shortcut(self, window):
-        """新建菜单快捷键 Ctrl+N"""
-        assert window._act_new.shortcut().toString() == "Ctrl+N"
+    def test_new_action_uses_ctrl_n_dispatcher(self, window):
+        """新建菜单动作不直接注册 Ctrl+N，由窗口级分发器处理。"""
+        assert window._act_new.shortcut().isEmpty()
+        assert window._shortcut_ctrl_n.context() == Qt.WindowShortcut
+
+    def test_ctrl_n_creates_notebook_from_welcome_page(self, window, qapp):
+        """欢迎页按 Ctrl+N 仍会新建笔记本。"""
+        window.activateWindow()
+        window.setFocus()
+        qapp.processEvents()
+
+        QTest.keyClick(window, Qt.Key_N, Qt.ControlModifier)
+
+        assert window._root_item is not None
+        assert window._stack.currentIndex() == 1
 
     def test_exit_action_shortcut(self, window):
         """退出菜单快捷键 Ctrl+Q"""
@@ -370,26 +405,24 @@ class TestRecentFiles:
         welcome.set_recent_files([])
         assert welcome.recent_list.count() == 0
 
-    def test_init_loads_recent_files(self, qapp, tmp_path):
-        """__init__ 后欢迎页最近文件列表反映 QSettings 中的内容。"""
-        from PySide6.QtCore import QSettings
+    def test_init_loads_recent_files(self, qapp, isolated_recent_files, tmp_path):
+        """__init__ 后欢迎页最近文件列表反映隔离 QSettings 中的内容。"""
         test_path = str(tmp_path / "test_recent.secnote")
         test_path2 = str(tmp_path / "test_recent2.secnote")
         # 创建测试文件（_load_recent_files 过滤不存在的文件）
         test_path and open(test_path, "w").close()
         open(test_path2, "w").close()
 
-        settings = QSettings()
-        settings.setValue("recent_files", [test_path, test_path2])
+        isolated_recent_files.setValue("recent_files", [test_path, test_path2])
+        w = MainWindow()
+        w.show()
         try:
-            w = MainWindow()
-            w.show()
             welcome = w._stack.widget(0)
             assert welcome.recent_list.count() == 2
+        finally:
+            w._is_dirty = False
             w.close()
             w.deleteLater()
-        finally:
-            settings.setValue("recent_files", [])
 
     def test_on_save_adds_recent_file(self, window, monkeypatch, tmp_path):
         """保存到已有路径后，欢迎页最近文件列表立即更新。"""
