@@ -49,3 +49,9 @@ progress:
 Last session: 2026-05-09
 Stopped at: Phase 3 complete, milestone v1.0 ready to archive or continue with next milestone planning.
 Resume file: None
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260509-m3r | 修复 GSD phase metadata，让 Phase 4-6 可被 init.phase-op 识别 | 2026-05-09 | 0b8b6f4 | [260509-m3r-gsd-phase-metadata-roadmap-md-phase-4-6-](./quick/260509-m3r-gsd-phase-metadata-roadmap-md-phase-4-6-/) |
