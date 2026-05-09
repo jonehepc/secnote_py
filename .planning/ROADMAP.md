@@ -71,8 +71,8 @@
 - [x] 03-02-PLAN.md — (TDD) PageListModel：QAbstractListModel 子类，平铺展示分区下的页面列表
 - [x] 03-03-PLAN.md — TreeModel 增强 (setData) + MainWindow 导航系统骨架搭建（模型绑定、信号连接、编辑预览）
 - [x] 03-04-PLAN.md — 导航 CRUD 操作：上下文菜单、键盘快捷键、创建/重命名/删除分区和页面、删除确认
-- [ ] 03-05-PLAN.md — Gap closure：恢复页面列表聚焦时 Ctrl+N 新建页面并补行为测试
-- [ ] 03-06-PLAN.md — Gap closure：修复导航重复绑定、重命名置脏、新建子分区自动选中
+- [x] 03-05-PLAN.md — Gap closure：恢复页面列表聚焦时 Ctrl+N 新建页面并补行为测试
+- [x] 03-06-PLAN.md — Gap closure：修复导航重复绑定、重命名置脏、新建子分区自动选中
 
 
 ### Phase 4：富文本编辑器
