@@ -140,12 +140,16 @@ class PageListModel(QAbstractListModel):
 
         row = index.row()
         note = self._notes[row]
-
-        # 从源数据中移除
-        if note in self._section.children:
-            self._section.children.remove(note)
+        source_row = -1
+        for i, child in enumerate(self._section.children):
+            if child is note:
+                source_row = i
+                break
+        if source_row == -1:
+            return False
 
         self.beginRemoveRows(QModelIndex(), row, row)
+        del self._section.children[source_row]
         self._notes.pop(row)
         self.endRemoveRows()
         return True

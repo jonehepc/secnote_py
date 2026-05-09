@@ -281,6 +281,41 @@ class TestRemoveNote:
         assert list_model.remove_note(idx) is False
         assert list_model.rowCount() == 2
 
+    def test_remove_note_uses_object_identity_not_value_equality(self):
+        """字段值相等的不同页面对象删除时不能误删第一个同值对象。"""
+        section = SNoteItem.new_section("分区")
+        first = SNoteItem(
+            id="same-id",
+            title="同名页面",
+            item_type="note",
+            content="same content",
+            children=[],
+            tags=[],
+            created_at="same-time",
+            updated_at="same-time",
+        )
+        second = SNoteItem(
+            id="same-id",
+            title="同名页面",
+            item_type="note",
+            content="same content",
+            children=[],
+            tags=[],
+            created_at="same-time",
+            updated_at="same-time",
+        )
+        assert first == second
+        assert first is not second
+        section.children.extend([first, second])
+        model = PageListModel()
+        model.set_section(section)
+
+        assert model.remove_note(model.index(1, 0)) is True
+
+        assert section.children == [first]
+        assert model.rowCount() == 1
+        assert model.note_at(model.index(0, 0)) is first
+
     def test_remove_note_rejects_external_model_index(self, list_model, section_with_notes):
         """来自其他 model 的索引不能删除页面。"""
         other_model = PageListModel()
