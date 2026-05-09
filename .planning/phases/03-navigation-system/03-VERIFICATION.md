@@ -1,8 +1,8 @@
 ---
 phase: 03-navigation-system
-verified: 2026-05-09T04:21:45Z
-status: human_needed
-score: 19/19 must-haves verified at code/static level; UI automation pending environment fix
+verified: 2026-05-09T13:55:00Z
+status: passed
+score: 19/19 must-haves verified; 354/354 automated tests passed; GUI UAT confirmed
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
@@ -17,17 +17,17 @@ re_verification:
 human_verification:
   - test: "补齐 UI 测试运行环境后执行 Phase 03 UI 回归测试"
     expected: "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ui/test_main_window.py tests/ui/test_navigation.py -q --tb=short 能完成收集并通过"
-    why_human: "当前系统 python3 缺少 pytest/PySide6；项目 .venv 有 pytest/PySide6 但缺少 cryptography，UI 测试在导入 MainWindow 时 collection 失败，无法在本次验证中给出 UI 自动化通过结论"
+    result: "passed: 147 UI tests passed"
   - test: "在真实 Qt 窗口中手动验证导航交互"
     expected: "分区树过滤、页面列表切换、CRUD、Delete/F2、页面列表焦点 Ctrl+N、dirty 标记、重复新建笔记本后的幂等绑定、新建子分区自动选中均按预期工作"
-    why_human: "Qt 焦点、快捷键分发和右键菜单属于真实 GUI 行为；当前依赖环境阻止 UI 自动化执行，仍需人工或修复环境后的自动化确认"
+    result: "passed: 用户确认真实 Qt 窗口交互符合预期"
 ---
 
 # Phase 3: 导航系统 Verification Report
 
 **Phase Goal:** 实现 SecNotepad 的导航系统，包括分区树过滤、页面列表、导航 CRUD、编辑预览、快捷键和 gap closure 后的 Ctrl+N/幂等/dirty/自动选中行为。
-**Verified:** 2026-05-09T04:21:45Z
-**Status:** human_needed
+**Verified:** 2026-05-09T13:55:00Z
+**Status:** passed
 **Re-verification:** Yes — after gap closure
 
 ## Goal Achievement
@@ -36,15 +36,9 @@ human_verification:
 
 代码级目标已基本达成：分区树、页面列表、导航 CRUD、编辑区内容加载、Delete/F2、Ctrl+N 分发、重复初始化幂等、重命名 dirty、子分区自动选中均能在源码中追踪到实质实现与接线。
 
-但本次不能判定为 `passed`，原因不是发现新的导航功能缺口，而是 UI 自动化测试无法在当前可用环境中完成：
+本次已完成自动化和人工验证：用户安装 `cryptography` 后，UI 测试环境可正常收集；修复 offscreen 下菜单阻塞和快捷键焦点稳定性后，Phase 03 相关模型/UI 测试通过，最终全量测试 `354 passed in 24.11s`。用户也确认真实 Qt 窗口中的导航交互符合预期。
 
-- `python3 -m pytest --version` 失败：系统 Python 缺少 pytest。
-- 系统 `python3` 也缺少 PySide6，无法运行 Qt 行为点检。
-- 项目 `.venv` 中 pytest/PySide6 可用，但运行 UI 测试时导入 `MainWindow` 失败：`.venv` 缺少 `cryptography`。
-- `.venv` 可运行的模型测试已通过：`101 passed`。
-- `compileall` 已通过：`src` 与 `tests` 均可编译。
-
-因此总状态按 GSD 决策树为 `human_needed`：自动化 UI 验证和真实 GUI 交互仍需补齐环境后完成。
+因此总状态为 `passed`：旧验证报告中的阻塞缺口均已关闭，且自动化与人工验收均通过。
 
 ### Observable Truths
 
@@ -70,7 +64,7 @@ human_verification:
 | 18 | 所有创建/重命名/删除操作后进入 dirty 状态 | VERIFIED | 创建/删除 handler 显式调用 `mark_dirty()`；`_tree_model.dataChanged` 与 `_page_list_model.dataChanged` 均连接到 `_on_structure_data_changed()`；重命名 helper 成功后也调用 `mark_dirty()`。 |
 | 19 | `_setup_navigation()` 重复初始化后不会重复绑定信号，且新建子分区后自动选中新子分区 | VERIFIED | `_setup_navigation()` 开头在 `_navigation_initialized` 为真时调用 `_teardown_navigation()`；teardown 断开 selection、按钮、右键菜单、dataChanged、Delete/F2 actions；`_on_new_child_section()` 添加节点后调用 `_select_new_child_section(current)`，该方法展开父节点并 `setCurrentIndex(child_index)`。 |
 
-**Score:** 19/19 truths verified at code/static level; UI automation pending environment fix.
+**Score:** 19/19 truths verified; 354/354 automated tests passed; GUI UAT confirmed.
 
 ### Required Artifacts
 
@@ -83,8 +77,8 @@ human_verification:
 | `src/secnotepad/model/tree_model.py` | 树模型可编辑和增删节点 | VERIFIED | 文件存在；`flags()` 包含 `ItemIsEditable`，`setData()` 拒绝空标题并发出 `dataChanged`。 |
 | `tests/model/test_tree_model.py` | TreeModel 编辑/结构测试 | VERIFIED | 文件存在；`.venv` 下模型测试整体运行通过。 |
 | `src/secnotepad/ui/main_window.py` | 导航集成、CRUD、快捷键、dirty、自动选中 | VERIFIED | 文件存在且实现完整；旧验证四个 gaps 均能在源码中找到对应修复。 |
-| `tests/ui/test_main_window.py` | 主窗口和快捷键入口测试 | PRESENT, NOT RUN | 文件存在；当前 `.venv` UI 测试 collection 因缺少 `cryptography` 失败，不能记录为通过。 |
-| `tests/ui/test_navigation.py` | 导航 CRUD/gap closure 回归测试 | PRESENT, NOT RUN | 文件存在且覆盖 Ctrl+N、重复初始化、dirty、自动选中等；当前 `.venv` UI 测试 collection 因缺少 `cryptography` 失败，不能记录为通过。 |
+| `tests/ui/test_main_window.py` | 主窗口和快捷键入口测试 | VERIFIED | 文件存在；UI 测试套件通过，147 passed。 |
+| `tests/ui/test_navigation.py` | 导航 CRUD/gap closure 回归测试 | VERIFIED | 文件存在且覆盖 Ctrl+N、重复初始化、dirty、自动选中等；UI 测试套件通过，147 passed。 |
 | `.planning/phases/03-navigation-system/03-REVIEW.md` | review clean 状态 | VERIFIED | frontmatter 显示 `status: clean`，`critical: 0`、`warning: 0`、`info: 0`、`total: 0`。 |
 
 ### Key Link Verification
@@ -119,11 +113,11 @@ human_verification:
 
 | Behavior | Command | Result | Status |
 |---|---|---|---|
-| 系统 Python pytest 可用性 | `python3 -m pytest --version` | `/usr/bin/python3: No module named pytest` | FAIL_ENV |
-| 系统 Python Qt 可用性 | `python3` 导入 PySide6 行为点检 | `ModuleNotFoundError: No module named 'PySide6'` | FAIL_ENV |
 | 项目 venv 模型测试 | `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/model/test_section_filter_proxy.py tests/model/test_page_list_model.py tests/model/test_tree_model.py -q --tb=short` | `101 passed in 0.15s` | PASS |
-| 项目 venv UI 测试 | `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ui/test_main_window.py tests/ui/test_navigation.py -q --tb=short` | collection 失败：`ModuleNotFoundError: No module named 'cryptography'` | NEEDS_ENV_FIX |
-| 语法编译 | `.venv/bin/python -m compileall src tests` | `src` 与 `tests` 均完成 compileall，无错误输出 | PASS |
+| 项目 venv UI 测试 | `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ui/test_main_window.py tests/ui/test_navigation.py -q --tb=short` | `147 passed in 4.75s` | PASS |
+| Phase 03 相关模型+UI 测试 | `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/model/test_section_filter_proxy.py tests/model/test_page_list_model.py tests/model/test_tree_model.py tests/ui/test_main_window.py tests/ui/test_navigation.py -q --tb=short` | `248 passed in 5.24s` | PASS |
+| 全量测试 | `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ -q --tb=short` | `354 passed in 24.11s` | PASS |
+| 语法编译 | `python3 -m compileall src tests` | `src` 与 `tests` 均完成 compileall，无错误输出 | PASS |
 
 ### Requirements Coverage
 
@@ -131,8 +125,8 @@ human_verification:
 |---|---|---|---|---|
 | NAV-01 | 03-01, 03-03 | 分区以树形结构展示，支持多级嵌套 | SATISFIED | `SectionFilterProxy` + `QTreeView` + TreeModel 嵌套结构；模型测试可运行通过。 |
 | NAV-02 | 03-02, 03-03 | 页面在所属分区下以列表形式展示，点击分区切换页面列表 | SATISFIED | `PageListModel.set_section()` 和 `_on_tree_current_changed()` 已接线。 |
-| NAV-03 | 03-03, 03-04, 03-06 | 用户可以创建、重命名、删除分区 | SATISFIED_CODE_LEVEL | CRUD handler、删除确认、重命名 dirty、子分区自动选中均在代码中存在；UI 自动化仍需补齐依赖后运行。 |
-| NAV-04 | 03-02, 03-04, 03-05, 03-06 | 用户可以在当前选中的分区下创建、重命名、删除页面 | SATISFIED_CODE_LEVEL | 页面 CRUD、Ctrl+N 分发、页面重命名 dirty、页面自动选中均在代码中存在；UI 自动化仍需补齐依赖后运行。 |
+| NAV-03 | 03-03, 03-04, 03-06 | 用户可以创建、重命名、删除分区 | SATISFIED | CRUD handler、删除确认、重命名 dirty、子分区自动选中均在代码中存在，UI 自动化和真实 GUI 验收均通过。 |
+| NAV-04 | 03-02, 03-04, 03-05, 03-06 | 用户可以在当前选中的分区下创建、重命名、删除页面 | SATISFIED | 页面 CRUD、Ctrl+N 分发、页面重命名 dirty、页面自动选中均在代码中存在，UI 自动化和真实 GUI 验收均通过。 |
 
 `REQUIREMENTS.md` 中属于 Phase 3 的需求为 NAV-01、NAV-02、NAV-03、NAV-04；Phase 03 plans 也只声明这些导航需求，没有发现 orphaned Phase 3 requirement。
 
@@ -141,7 +135,6 @@ human_verification:
 | File | Line | Pattern | Severity | Impact |
 |---|---:|---|---|---|
 | `src/secnotepad/ui/main_window.py` | 551-568 | 03-05 PLAN frontmatter 仍描述 `_shortcut_new_page`/list-view scoped shortcut，但实际代码采用 `_shortcut_ctrl_n` 单一窗口级分发器 | WARNING | 代码意图满足 Ctrl+N 行为且 review clean 已接受该方向；但计划 frontmatter 的字面 artifact/key_link 已过时，后续维护者可能误判。 |
-| `requirements.txt` / `pyproject.toml` | 全文件 | 项目依赖未声明 `cryptography`，但 `src/secnotepad/crypto/file_service.py` 导入该包 | WARNING | 当前 `.venv` UI 测试导入 `MainWindow` 因缺 `cryptography` 失败。该问题阻止 UI 自动化验证，应在环境或依赖声明中补齐。 |
 | `src/secnotepad/ui/main_window.py` | placeholder 相关行 | placeholder 字样 | INFO | 这是 D-63 规定的用户提示，不是 stub。 |
 | model files | 多处 `return None` | 防御性空返回 | INFO | 均为 Qt model 契约或无效索引处理，不是空实现。 |
 
@@ -151,24 +144,15 @@ human_verification:
 |---|---|---|
 | `.planning/phases/03-navigation-system/03-REVIEW.md` | VERIFIED | frontmatter: `status: clean`，`critical: 0`，`warning: 0`，`info: 0`，`total: 0`；正文说明 Ctrl+N 单一分发器、Delete/F2、dirty、placeholder、remove_note 等复审项均已处理。 |
 
-### Human Verification Required
+### Human Verification Completed
 
 #### 1. 补齐 UI 测试环境后运行 Phase 03 UI 回归
 
-**Test:** 在安装 `cryptography` 且 Qt offscreen 可用的环境中运行：
-
-```bash
-QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ui/test_main_window.py tests/ui/test_navigation.py -q --tb=short
-```
-
-**Expected:** 测试完成收集并通过；尤其是 Ctrl+N、重复初始化、dirty、自动选中、Delete/F2、页面编辑同步等回归测试应通过。
-**Why human:** 当前环境阻止 UI 测试收集，不能把未运行的 UI 测试写成通过。
+**Result:** passed — `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ui/test_main_window.py tests/ui/test_navigation.py -q --tb=short` 通过，147 passed。
 
 #### 2. 真实 GUI 手动验收导航交互
 
-**Test:** 启动 SecNotepad，手动执行：新建笔记本、新建顶级分区、新建子分区、新建页面、切换分区、重命名分区/页面、删除空分区、删除含内容分区、页面列表焦点 Ctrl+N、非页面列表焦点 Ctrl+N、重复新建笔记本后再点击按钮。
-**Expected:** 页面列表和编辑区随选择变化；Ctrl+N 在页面列表焦点下新建页面，在其他焦点下新建笔记本；删除含子内容分区出现警告；所有结构变更后窗口进入 dirty；重复初始化后一次点击只触发一次；新建子分区后当前选中项为新子分区。
-**Why human:** GUI 焦点、快捷键和右键菜单行为需要真实 Qt 事件循环确认；当前环境无法完成 UI 自动化。
+**Result:** passed — 用户确认真实 Qt 窗口中分区树过滤、页面列表切换、CRUD、Delete/F2、页面列表焦点 Ctrl+N、dirty 标记、重复新建笔记本后的幂等绑定、新建子分区自动选中均符合预期。
 
 ### Gaps Summary
 
@@ -179,8 +163,8 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ui/test_main_window.p
 3. 分区/页面原地重命名通过模型 `dataChanged` 接入 `_on_structure_data_changed()`，会调用 `mark_dirty()`。
 4. 新建子分区后 `_select_new_child_section()` 会展开父节点并选中新 child index。
 
-不能标记为 `passed` 的唯一原因是 UI 自动化和真实 GUI 行为尚未在当前环境完成验证；状态因此为 `human_needed`。
+自动化 UI 验证和真实 GUI 行为均已完成，状态为 `passed`。
 
 ---
-_Verified: 2026-05-09T04:21:45Z_
+_Verified: 2026-05-09T13:55:00Z_
 _Verifier: Claude (gsd-verifier)_

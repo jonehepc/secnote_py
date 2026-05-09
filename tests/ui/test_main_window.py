@@ -229,9 +229,14 @@ class TestMenuBar:
         assert window._act_new.shortcut().isEmpty()
         assert window._shortcut_ctrl_n.context() == Qt.WindowShortcut
 
-    def test_ctrl_n_creates_notebook_from_welcome_page(self, window):
+    def test_ctrl_n_creates_notebook_from_welcome_page(self, window, qapp):
         """欢迎页按 Ctrl+N 仍会新建笔记本。"""
+        window.activateWindow()
+        window.setFocus()
+        qapp.processEvents()
+
         QTest.keyClick(window, Qt.Key_N, Qt.ControlModifier)
+
         assert window._root_item is not None
         assert window._stack.currentIndex() == 1
 

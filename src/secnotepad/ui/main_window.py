@@ -50,6 +50,7 @@ class MainWindow(QMainWindow):
         self._act_delete: QAction | None = None
         self._act_rename: QAction | None = None
         self._shortcut_ctrl_n: QShortcut | None = None
+        self._data_changed_models = []
 
         # ── 文件操作状态 (Phase 2) ──
         self._is_dirty: bool = False
@@ -298,6 +299,7 @@ class MainWindow(QMainWindow):
         )
         self._tree_model.dataChanged.connect(self._on_structure_data_changed)
         self._page_list_model.dataChanged.connect(self._on_structure_data_changed)
+        self._data_changed_models = [self._tree_model, self._page_list_model]
 
         # --- 右键菜单 (D-56) ---
         self._setup_tree_context_menu()
@@ -361,11 +363,12 @@ class MainWindow(QMainWindow):
                 signal.disconnect(handler)
             except (RuntimeError, TypeError, AttributeError):
                 pass
-        for model in (self._tree_model, self._page_list_model):
+        for model in self._data_changed_models:
             try:
                 model.dataChanged.disconnect(self._on_structure_data_changed)
             except (RuntimeError, TypeError, AttributeError):
                 pass
+        self._data_changed_models = []
         for action in (self._act_delete, self._act_rename):
             if action is None:
                 continue
@@ -497,7 +500,10 @@ class MainWindow(QMainWindow):
         else:
             menu.addAction("新建分区", self._on_new_root_section)
 
-        menu.exec(self._tree_view.viewport().mapToGlobal(pos))
+        self._exec_context_menu(menu, self._tree_view.viewport().mapToGlobal(pos))
+
+    def _exec_context_menu(self, menu, global_pos):
+        return menu.exec(global_pos)
 
     def _setup_page_context_menu(self):
         """页面列表右键菜单 (D-56)。"""
@@ -521,7 +527,7 @@ class MainWindow(QMainWindow):
                 menu.addAction("删除页面", self._on_delete_page)
             else:
                 menu.addAction("新建页面", self._on_new_page)
-            menu.exec(self._list_view.viewport().mapToGlobal(pos))
+            self._exec_context_menu(menu, self._list_view.viewport().mapToGlobal(pos))
         finally:
             menu.deleteLater()
 

@@ -151,11 +151,11 @@ class TestNavigationCRUD:
 
         captured = {}
 
-        def fake_exec(self, *args, **kwargs):
+        def fake_exec(menu, global_pos):
             captured["current"] = window_with_notebook._tree_view.currentIndex()
             return None
 
-        monkeypatch.setattr(QMenu, "exec", fake_exec)
+        monkeypatch.setattr(window_with_notebook, "_exec_context_menu", fake_exec)
         monkeypatch.setattr(window_with_notebook._tree_view, "indexAt", lambda pos: second_index)
 
         window_with_notebook._on_tree_context_menu(window_with_notebook._tree_view.rect().center())
@@ -187,7 +187,9 @@ class TestNavigationCRUD:
         before = window_with_notebook._page_list_model.rowCount()
         window_with_notebook._is_dirty = False
 
+        window_with_notebook.activateWindow()
         window_with_notebook._list_view.setFocus()
+        QTest.qWaitForWindowActive(window_with_notebook)
         QTest.keyClick(
             window_with_notebook._list_view,
             Qt.Key_N,
@@ -206,7 +208,9 @@ class TestNavigationCRUD:
             called["count"] += 1
 
         monkeypatch.setattr(window_with_notebook, "_on_new_notebook", fake_new_notebook)
+        window_with_notebook.activateWindow()
         window_with_notebook._editor_preview.setFocus()
+        QTest.qWaitForWindowActive(window_with_notebook)
 
         QTest.keyClick(window_with_notebook._editor_preview, Qt.Key_N, Qt.ControlModifier)
 
@@ -350,11 +354,11 @@ class TestNavigationCRUD:
         window_with_notebook._setup_navigation()
         captured = {}
 
-        def fake_popup(self, *args, **kwargs):
-            captured["texts"] = [action.text() for action in self.actions()]
+        def fake_popup(menu, global_pos):
+            captured["texts"] = [action.text() for action in menu.actions()]
             return None
 
-        monkeypatch.setattr(QMenu, "exec", fake_popup)
+        monkeypatch.setattr(window_with_notebook, "_exec_context_menu", fake_popup)
         window_with_notebook._on_page_context_menu(
             window_with_notebook._list_view.viewport().rect().bottomRight()
         )
@@ -367,11 +371,11 @@ class TestNavigationCRUD:
         window_with_notebook._on_new_page()
         captured = {}
 
-        def fake_popup(self, *args, **kwargs):
-            captured["texts"] = [action.text() for action in self.actions()]
+        def fake_popup(menu, global_pos):
+            captured["texts"] = [action.text() for action in menu.actions()]
             return None
 
-        monkeypatch.setattr(QMenu, "exec", fake_popup)
+        monkeypatch.setattr(window_with_notebook, "_exec_context_menu", fake_popup)
         index = window_with_notebook._list_view.currentIndex()
         rect = window_with_notebook._list_view.visualRect(index)
         window_with_notebook._on_page_context_menu(rect.center())
@@ -601,7 +605,9 @@ class TestNavigationCRUD:
         window_with_notebook._on_new_notebook()
         window_with_notebook._on_new_root_section()
         before = window_with_notebook._page_list_model.rowCount()
+        window_with_notebook.activateWindow()
         window_with_notebook._list_view.setFocus()
+        QTest.qWaitForWindowActive(window_with_notebook)
 
         QTest.keyClick(window_with_notebook._list_view, Qt.Key_N, Qt.ControlModifier)
 
@@ -779,11 +785,11 @@ class TestNavigationCRUD:
 
         captured = {}
 
-        def fake_exec(self, *args, **kwargs):
-            captured["texts"] = [action.text() for action in self.actions()]
+        def fake_exec(menu, global_pos):
+            captured["texts"] = [action.text() for action in menu.actions()]
             return None
 
-        monkeypatch.setattr(QMenu, "exec", fake_exec)
+        monkeypatch.setattr(window_with_notebook, "_exec_context_menu", fake_exec)
         index = window_with_notebook._list_view.currentIndex()
         rect = window_with_notebook._list_view.visualRect(index)
         window_with_notebook._on_page_context_menu(rect.center())
@@ -798,11 +804,11 @@ class TestNavigationCRUD:
 
         captured = {}
 
-        def fake_popup(self, *args, **kwargs):
+        def fake_popup(menu, global_pos):
             captured["current"] = window_with_notebook._list_view.currentIndex().isValid()
             return None
 
-        monkeypatch.setattr(QMenu, "exec", fake_popup)
+        monkeypatch.setattr(window_with_notebook, "_exec_context_menu", fake_popup)
         index = window_with_notebook._list_view.currentIndex()
         rect = window_with_notebook._list_view.visualRect(index)
         window_with_notebook._list_view.clearSelection()
@@ -815,11 +821,11 @@ class TestNavigationCRUD:
         window_with_notebook._on_new_root_section()
         captured = {}
 
-        def fake_exec(self, *args, **kwargs):
-            captured["texts"] = [action.text() for action in self.actions()]
+        def fake_exec(menu, global_pos):
+            captured["texts"] = [action.text() for action in menu.actions()]
             return None
 
-        monkeypatch.setattr(QMenu, "exec", fake_exec)
+        monkeypatch.setattr(window_with_notebook, "_exec_context_menu", fake_exec)
         window_with_notebook._on_page_context_menu(
             window_with_notebook._list_view.viewport().rect().bottomRight()
         )
