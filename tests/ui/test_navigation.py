@@ -16,6 +16,7 @@ def window_with_notebook(qapp):
     w.show()
     w._on_new_notebook()
     yield w
+    w._is_dirty = False
     w.close()
     w.deleteLater()
 
@@ -124,6 +125,43 @@ class TestNavigationCRUD:
 
         assert window_with_notebook._section_filter.rowCount() == before + 1
 
+    def test_reinitialize_navigation_replaces_delete_and_rename_actions(self, window_with_notebook):
+        """重复初始化导航不会在视图上累积 Delete/F2 QAction。"""
+        window_with_notebook._setup_navigation()
+        window_with_notebook._setup_navigation()
+
+        delete_actions = [
+            action for action in window_with_notebook._tree_view.actions()
+            if action.text() == "删除"
+        ]
+        rename_actions = [
+            action for action in window_with_notebook._tree_view.actions()
+            if action.text() == "重命名"
+        ]
+        assert len(delete_actions) == 1
+        assert len(rename_actions) == 1
+
+    def test_tree_context_menu_selects_right_clicked_section(self, window_with_notebook, monkeypatch):
+        """树右键菜单操作前会同步到右键点击的分区，而非旧 currentIndex。"""
+        window_with_notebook._on_new_root_section()
+        first_index = window_with_notebook._section_filter.index(0, 0, QModelIndex())
+        window_with_notebook._on_new_root_section()
+        second_index = window_with_notebook._section_filter.index(1, 0, QModelIndex())
+        window_with_notebook._tree_view.setCurrentIndex(first_index)
+
+        captured = {}
+
+        def fake_exec(self, *args, **kwargs):
+            captured["current"] = window_with_notebook._tree_view.currentIndex()
+            return None
+
+        monkeypatch.setattr(QMenu, "exec", fake_exec)
+        monkeypatch.setattr(window_with_notebook._tree_view, "indexAt", lambda pos: second_index)
+
+        window_with_notebook._on_tree_context_menu(window_with_notebook._tree_view.rect().center())
+
+        assert captured["current"] == second_index
+
     def test_rename_section_marks_dirty(self, window_with_notebook):
         """分区重命名后窗口进入脏状态。"""
         window_with_notebook._on_new_root_section()
@@ -143,9 +181,22 @@ class TestNavigationCRUD:
         assert window_with_notebook._rename_current_page("已重命名页面") is True
         assert window_with_notebook._is_dirty is True
 
-    def test_ctrl_n_is_not_required_anymore(self, window_with_notebook):
-        """人工验证后已接受移除 Ctrl+N 页面快捷键。"""
-        assert not hasattr(window_with_notebook, "_act_new_page")
+    def test_ctrl_n_creates_page_when_page_list_focused(self, window_with_notebook):
+        """页面列表聚焦时 Ctrl+N 新建页面并选中新页面。"""
+        window_with_notebook._on_new_root_section()
+        before = window_with_notebook._page_list_model.rowCount()
+        window_with_notebook._is_dirty = False
+
+        window_with_notebook._list_view.setFocus()
+        QTest.keyClick(
+            window_with_notebook._list_view,
+            Qt.Key_N,
+            Qt.ControlModifier,
+        )
+
+        assert window_with_notebook._page_list_model.rowCount() == before + 1
+        assert window_with_notebook._list_view.currentIndex().isValid()
+        assert window_with_notebook._is_dirty is True
 
     def test_second_new_notebook_keeps_single_button_binding(self, window_with_notebook):
         """同一窗口会话里再次新建笔记本后，按钮点击仍只创建一次。"""
@@ -216,11 +267,11 @@ class TestNavigationCRUD:
         assert window_with_notebook._rename_current_page("再次重命名页面") is True
         assert window_with_notebook._is_dirty is True
 
-    def test_accepted_deviation_ctrl_n_removed(self, window_with_notebook):
-        """Ctrl+N 页面快捷键已作为人工确认后的接受偏差移除。"""
-        assert hasattr(window_with_notebook, "_act_new")
+    def test_ctrl_n_shortcut_is_scoped_to_page_list(self, window_with_notebook):
+        """页面 Ctrl+N 限定在页面列表，主窗口 Ctrl+N 仍保留。"""
         assert window_with_notebook._act_new.shortcut().toString() == "Ctrl+N"
-        assert not hasattr(window_with_notebook, "_act_new_page")
+        assert window_with_notebook._shortcut_new_page.parent() is window_with_notebook._list_view
+        assert window_with_notebook._shortcut_new_page.context() == Qt.WidgetShortcut
 
     def test_reinitialize_navigation_preserves_toolbar_enabled_state(self, window_with_notebook):
         """重复初始化后工具栏按钮仍保持启用。"""
@@ -324,10 +375,11 @@ class TestNavigationCRUD:
         window_with_notebook._on_new_child_section()
         assert window_with_notebook._tree_view.currentIndex().isValid()
 
-    def test_reinitialize_navigation_preserves_accepted_ctrl_n_deviation(self, window_with_notebook):
-        """重复初始化后仍不恢复页面 Ctrl+N 快捷键。"""
+    def test_reinitialize_navigation_preserves_page_ctrl_n_shortcut(self, window_with_notebook):
+        """重复初始化后页面 Ctrl+N 快捷键仍限定在页面列表。"""
         window_with_notebook._setup_navigation()
-        assert not hasattr(window_with_notebook, "_act_new_page")
+        assert window_with_notebook._shortcut_new_page.parent() is window_with_notebook._list_view
+        assert window_with_notebook._shortcut_new_page.context() == Qt.WidgetShortcut
 
     def test_reinitialize_navigation_keeps_dirty_mark_on_section_rename(self, window_with_notebook):
         """重复初始化后分区重命名仍会置脏。"""
@@ -514,10 +566,16 @@ class TestNavigationCRUD:
         assert window_with_notebook._rename_current_page("independent page") is True
         assert window_with_notebook._is_dirty is True
 
-    def test_reinitialize_navigation_after_second_notebook_preserves_deviation(self, window_with_notebook):
-        """再次新建笔记本后仍不恢复 Ctrl+N 页面快捷键。"""
+    def test_reinitialize_navigation_after_second_notebook_preserves_page_ctrl_n(self, window_with_notebook):
+        """再次新建笔记本后页面 Ctrl+N 快捷键仍可用。"""
         window_with_notebook._on_new_notebook()
-        assert not hasattr(window_with_notebook, "_act_new_page")
+        window_with_notebook._on_new_root_section()
+        before = window_with_notebook._page_list_model.rowCount()
+        window_with_notebook._list_view.setFocus()
+
+        QTest.keyClick(window_with_notebook._list_view, Qt.Key_N, Qt.ControlModifier)
+
+        assert window_with_notebook._page_list_model.rowCount() == before + 1
 
     def test_reinitialize_navigation_after_second_notebook_keeps_context_menu(self, window_with_notebook):
         """再次新建笔记本后页面右键菜单绑定仍存在。"""
@@ -595,12 +653,6 @@ class TestNavigationCRUD:
         window_with_notebook._on_new_root_section()
         window_with_notebook._on_new_page()
         assert window_with_notebook._list_view.currentIndex().isValid()
-
-    def test_accepted_deviation_ctrl_n_removed(self, window_with_notebook):
-        """Ctrl+N 页面快捷键已作为人工确认后的接受偏差移除。"""
-        assert hasattr(window_with_notebook, "_act_new")
-        assert window_with_notebook._act_new.shortcut().toString() == "Ctrl+N"
-        assert not hasattr(window_with_notebook, "_act_new_page")
 
     def test_new_page_sets_dirty(self, window_with_notebook):
         """新建页面触发脏标志 (D-61)。"""

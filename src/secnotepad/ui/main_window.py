@@ -2,7 +2,7 @@
 
 import os
 
-from PySide6.QtGui import QAction, QKeySequence, QCloseEvent
+from PySide6.QtGui import QAction, QKeySequence, QCloseEvent, QShortcut
 from PySide6.QtWidgets import (QMainWindow, QWidget, QSplitter,
                                 QTreeView, QListView, QStackedWidget,
                                 QStyle, QVBoxLayout, QMessageBox,
@@ -45,6 +45,11 @@ class MainWindow(QMainWindow):
         self._page_button_bar: QFrame = None
         self._btn_new_page: QPushButton = None
         self._navigation_initialized: bool = False
+        self._tree_selection = None
+        self._page_selection = None
+        self._act_delete: QAction | None = None
+        self._act_rename: QAction | None = None
+        self._shortcut_new_page: QShortcut | None = None
 
         # ── 文件操作状态 (Phase 2) ──
         self._is_dirty: bool = False
@@ -291,6 +296,8 @@ class MainWindow(QMainWindow):
         self._page_selection.currentChanged.connect(
             self._on_page_current_changed
         )
+        self._tree_model.dataChanged.connect(self._on_structure_data_changed)
+        self._page_list_model.dataChanged.connect(self._on_structure_data_changed)
 
         # --- 右键菜单 (D-56) ---
         self._setup_tree_context_menu()
@@ -342,7 +349,45 @@ class MainWindow(QMainWindow):
                 button.clicked.disconnect(handler)
             except (RuntimeError, TypeError):
                 pass
+        for signal, handler in (
+            (self._tree_view.customContextMenuRequested,
+             self._on_tree_context_menu),
+            (self._list_view.customContextMenuRequested,
+             self._on_page_context_menu),
+            (self._list_view.viewport().customContextMenuRequested,
+             self._on_page_context_menu),
+        ):
+            try:
+                signal.disconnect(handler)
+            except (RuntimeError, TypeError, AttributeError):
+                pass
+        for model in (self._tree_model, self._page_list_model):
+            try:
+                model.dataChanged.disconnect(self._on_structure_data_changed)
+            except (RuntimeError, TypeError, AttributeError):
+                pass
+        if self._shortcut_new_page is not None:
+            try:
+                self._shortcut_new_page.activated.disconnect(self._on_new_page)
+            except (RuntimeError, TypeError):
+                pass
+            self._shortcut_new_page.setParent(None)
+            self._shortcut_new_page.deleteLater()
+            self._shortcut_new_page = None
+        for action in (self._act_delete, self._act_rename):
+            if action is None:
+                continue
+            self._tree_view.removeAction(action)
+            self._list_view.removeAction(action)
+            action.deleteLater()
+        self._act_delete = None
+        self._act_rename = None
+        self._tree_selection = None
+        self._page_selection = None
         self._navigation_initialized = False
+
+    def _on_structure_data_changed(self, *args):
+        self.mark_dirty()
 
     def _select_new_child_section(self, parent_proxy_index: QModelIndex):
         """在当前选中分区下创建子分区后选中新子节点。"""
@@ -503,6 +548,9 @@ class MainWindow(QMainWindow):
         self._act_rename.triggered.connect(self._on_rename_selected)
 
         self._list_view.setFocusPolicy(Qt.StrongFocus)
+        self._shortcut_new_page = QShortcut(QKeySequence("Ctrl+N"), self._list_view)
+        self._shortcut_new_page.setContext(Qt.WidgetShortcut)
+        self._shortcut_new_page.activated.connect(self._on_new_page)
 
     def _initialize_navigation_state(self):
         """打开笔记本后展开分区树第一层并自动选中第一个子分区 (D-52, D-53)。
