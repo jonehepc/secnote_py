@@ -6,7 +6,7 @@ from collections.abc import Callable
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import (QAction, QActionGroup, QColor, QFont,
                             QTextBlockFormat, QTextCharFormat, QTextCursor,
-                            QTextListFormat)
+                            QTextDocumentFragment, QTextListFormat)
 from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox,
                                 QFontComboBox, QStyle, QTextEdit, QToolBar,
                                 QVBoxLayout, QWidget)
@@ -14,6 +14,40 @@ from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox,
 
 class SafeRichTextEdit(QTextEdit):
     """QTextEdit with Phase 04 paste/resource safety boundaries."""
+
+    paste_sanitized = Signal()
+
+    def canInsertFromMimeData(self, source) -> bool:
+        """Allow text/HTML insertion and reject image/URL-only MIME payloads."""
+        if source.hasText() or source.hasHtml():
+            return True
+        if source.hasImage() or source.hasUrls():
+            return False
+        return super().canInsertFromMimeData(source)
+
+    def insertFromMimeData(self, source) -> None:
+        """Downgrade unsafe HTML paste payloads to plain text."""
+        if source.hasHtml() and self._html_has_blocked_resources(source.html()):
+            if source.hasText():
+                self.insertPlainText(source.text())
+            self.paste_sanitized.emit()
+            return
+        super().insertFromMimeData(source)
+
+    def _html_has_blocked_resources(self, html: str) -> bool:
+        lowered = html.lower()
+        blocked_patterns = (
+            '<img',
+            'src="file:',
+            "src='file:",
+            'src="http:',
+            "src='http:",
+            'src="https:',
+            "src='https:",
+            '<script',
+            'javascript:',
+        )
+        return any(pattern in lowered for pattern in blocked_patterns) or re.search(r"\son[a-z]+\s*=", lowered) is not None
 
 
 class RichTextEditorWidget(QWidget):
@@ -73,8 +107,9 @@ class RichTextEditorWidget(QWidget):
             self._editor.blockSignals(False)
 
     def to_html(self) -> str:
-        """Return the current editor content as Qt HTML."""
-        return self._editor.toHtml()
+        """Return current content as HTML without Qt's external doctype URL."""
+        html = self._editor.toHtml()
+        return re.sub(r'<!DOCTYPE[^>]*>\s*', '', html, count=1, flags=re.IGNORECASE)
 
     def set_status_callback(self, callback: Callable[[str], None] | None) -> None:
         """Set an optional callback for user-visible status messages."""
@@ -202,6 +237,7 @@ class RichTextEditorWidget(QWidget):
         self._editor.copyAvailable.connect(self.copy_available_changed)
         self._editor.copyAvailable.connect(self.action_cut.setEnabled)
         self._editor.copyAvailable.connect(self.action_copy.setEnabled)
+        self._editor.paste_sanitized.connect(self._on_paste_sanitized)
 
     def _add_checkable_action(self, text: str, slot: Callable[[bool], None]) -> QAction:
         action = QAction(text, self)
@@ -263,7 +299,7 @@ class RichTextEditorWidget(QWidget):
         self.action_indent = self.action_indent_more
 
     def _emit_content_changed(self) -> None:
-        self.content_changed.emit(self._editor.toHtml())
+        self.content_changed.emit(self.to_html())
 
     def _merge_char_format(self, fmt: QTextCharFormat) -> None:
         cursor = self._editor.textCursor()
@@ -416,8 +452,13 @@ class RichTextEditorWidget(QWidget):
         return QColorDialog.getColor(parent=self)
 
     def _set_status(self, message: str) -> None:
+        self.status_message_requested.emit(message)
         if self._status_callback is not None:
             self._status_callback(message)
+
+    def _on_paste_sanitized(self) -> None:
+        self.paste_sanitized.emit()
+        self._set_status("已粘贴文本内容；图片和外部资源未导入")
 
     def _sync_char_format(self, char_format: QTextCharFormat) -> None:
         self._syncing_toolbar = True
