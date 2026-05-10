@@ -2,9 +2,9 @@
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QTextCursor, QTextListFormat
+from PySide6.QtGui import QActionGroup, QColor, QFont, QTextCursor, QTextListFormat
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QActionGroup, QApplication, QFontComboBox
+from PySide6.QtWidgets import QApplication, QFontComboBox
 
 from src.secnotepad.ui.rich_text_editor import RichTextEditorWidget, SafeRichTextEdit
 
