@@ -6,7 +6,7 @@ from PySide6.QtGui import QAction, QKeySequence, QCloseEvent, QShortcut
 from PySide6.QtWidgets import (QMainWindow, QWidget, QSplitter,
                                 QTreeView, QListView, QStackedWidget,
                                 QStyle, QVBoxLayout, QMessageBox,
-                                QFileDialog, QDialog,
+                                QFileDialog, QDialog, QMenu,
                                 QTextEdit, QLabel, QAbstractItemView,
                                 QPushButton, QFrame, QHBoxLayout)
 from PySide6.QtCore import Qt, QModelIndex
@@ -86,9 +86,12 @@ class MainWindow(QMainWindow):
     def _setup_menu_bar(self):
         """设置菜单栏 (D-16)"""
         mb = self.menuBar()
+        mb.setNativeMenuBar(False)
 
         # ── 文件菜单 ──
-        file_menu = mb.addMenu("文件(&F)")
+        self._file_menu = QMenu("文件(&F)", self)
+        mb.addMenu(self._file_menu)
+        file_menu = self._file_menu
 
         self._act_new = QAction("新建(&N)", self)
         file_menu.addAction(self._act_new)
@@ -114,24 +117,43 @@ class MainWindow(QMainWindow):
         self._act_exit.triggered.connect(self.close)
         file_menu.addAction(self._act_exit)
 
-        # ── 编辑菜单（全部灰显）──
-        edit_menu = mb.addMenu("编辑(&E)")
-        edit_texts = ["撤销(&U)", "重做(&R)", "剪切(&T)", "复制(&C)", "粘贴(&P)"]
-        self._edit_actions = []
-        for text in edit_texts:
-            act = QAction(text, self)
-            act.setEnabled(False)                  # D-16: 灰显
+        # ── 编辑菜单 ──
+        self._edit_menu = QMenu("编辑(&E)", self)
+        mb.addMenu(self._edit_menu)
+        edit_menu = self._edit_menu
+        self._act_undo = QAction("撤销(&U)", self)
+        self._act_undo.setShortcut(QKeySequence.StandardKey.Undo)
+        self._act_redo = QAction("重做(&R)", self)
+        self._act_redo.setShortcut(QKeySequence("Ctrl+Y"))
+        self._act_cut = QAction("剪切(&T)", self)
+        self._act_cut.setShortcut(QKeySequence.StandardKey.Cut)
+        self._act_copy = QAction("复制(&C)", self)
+        self._act_copy.setShortcut(QKeySequence.StandardKey.Copy)
+        self._act_paste = QAction("粘贴(&P)", self)
+        self._act_paste.setShortcut(QKeySequence.StandardKey.Paste)
+        self._edit_actions = [
+            self._act_undo,
+            self._act_redo,
+            self._act_cut,
+            self._act_copy,
+            self._act_paste,
+        ]
+        for act in self._edit_actions:
+            act.setEnabled(False)
             edit_menu.addAction(act)
-            self._edit_actions.append(act)
 
         # ── 视图菜单 ──
-        view_menu = mb.addMenu("视图(&V)")
+        self._view_menu = QMenu("视图(&V)", self)
+        mb.addMenu(self._view_menu)
+        view_menu = self._view_menu
         self._act_toggle_panels = QAction("切换面板显示", self)
         self._act_toggle_panels.setEnabled(False)   # D-16: 灰显
         view_menu.addAction(self._act_toggle_panels)
 
         # ── 帮助菜单 ──
-        help_menu = mb.addMenu("帮助(&H)")
+        self._help_menu = QMenu("帮助(&H)", self)
+        mb.addMenu(self._help_menu)
+        help_menu = self._help_menu
         self._act_about = QAction("关于(&A)...", self)
         self._act_about.setEnabled(False)           # D-16: 灰显
         help_menu.addAction(self._act_about)
@@ -464,6 +486,7 @@ class MainWindow(QMainWindow):
         self._editor_stack.setCurrentIndex(1)
         self._rich_text_editor.load_html("")
         self._rich_text_editor.set_editor_enabled(False)
+        self._update_edit_action_states()
 
     def _on_editor_text_changed(self):
         """兼容旧测试入口：同步当前富文本 HTML。"""
@@ -488,6 +511,31 @@ class MainWindow(QMainWindow):
         self._rich_text_editor.load_html(note.content or "")
         self._editor_stack.setCurrentIndex(0)
         self._rich_text_editor.set_editor_enabled(True)
+        self._update_edit_action_states()
+
+    def _update_edit_action_states(self):
+        """按当前页面和富文本编辑器文档状态更新编辑菜单。"""
+        has_page = self._editor_stack.currentIndex() == 0
+        if self._page_list_model is not None:
+            has_page = has_page and self._page_list_model.note_at(
+                self._list_view.currentIndex()
+            ) is not None
+        if not has_page:
+            for act in self._edit_actions:
+                act.setEnabled(False)
+            return
+
+        document = self._rich_text_editor.editor().document()
+        has_selection = self._rich_text_editor.editor().textCursor().hasSelection()
+        self._act_undo.setEnabled(document.isUndoAvailable())
+        self._act_redo.setEnabled(document.isRedoAvailable())
+        self._act_cut.setEnabled(has_selection)
+        self._act_copy.setEnabled(has_selection)
+        try:
+            can_paste = self._rich_text_editor.can_paste()
+        except AttributeError:
+            can_paste = True
+        self._act_paste.setEnabled(can_paste)
 
     def _setup_tree_context_menu(self):
         """分区树右键菜单 (D-56)。
@@ -865,6 +913,33 @@ class MainWindow(QMainWindow):
         self._tb_save.triggered.connect(self._on_save)
         self._act_save_as.triggered.connect(self._on_save_as)
         self._tb_saveas.triggered.connect(self._on_save_as)
+
+        # Phase 4: 编辑菜单路由到当前富文本编辑器
+        self._act_undo.triggered.connect(self._rich_text_editor.undo)
+        self._act_redo.triggered.connect(self._rich_text_editor.redo)
+        self._act_cut.triggered.connect(self._rich_text_editor.cut)
+        self._act_copy.triggered.connect(self._rich_text_editor.copy)
+        self._act_paste.triggered.connect(self._rich_text_editor.paste)
+        self._rich_text_editor.undo_available_changed.connect(
+            lambda enabled: self._act_undo.setEnabled(
+                enabled and self._editor_stack.currentIndex() == 0
+            )
+        )
+        self._rich_text_editor.redo_available_changed.connect(
+            lambda enabled: self._act_redo.setEnabled(
+                enabled and self._editor_stack.currentIndex() == 0
+            )
+        )
+        self._rich_text_editor.copy_available_changed.connect(
+            lambda enabled: self._act_copy.setEnabled(
+                enabled and self._editor_stack.currentIndex() == 0
+            )
+        )
+        self._rich_text_editor.copy_available_changed.connect(
+            lambda enabled: self._act_cut.setEnabled(
+                enabled and self._editor_stack.currentIndex() == 0
+            )
+        )
 
     def _on_new_notebook(self):
         """新建空白笔记本 (D-14)"""
