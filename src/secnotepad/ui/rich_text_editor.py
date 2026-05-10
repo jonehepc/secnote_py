@@ -213,9 +213,16 @@ class RichTextEditorWidget(QWidget):
             self.action_italic.setChecked(char_format.fontItalic())
             self.action_underline.setChecked(char_format.fontUnderline())
             self.action_strike.setChecked(char_format.fontStrikeOut())
-            family = char_format.fontFamily()
-            if family and self.font_combo.currentFont().family() != family:
-                self.font_combo.setCurrentFont(QFont(family))
+            font = char_format.font()
+            family = font.family()
+            if family:
+                self.font_combo.blockSignals(True)
+                try:
+                    current_family = self.font_combo.currentText()
+                    if current_family != family:
+                        self.font_combo.setCurrentText(family)
+                finally:
+                    self.font_combo.blockSignals(False)
             point_size = char_format.fontPointSize()
             if point_size > 0:
                 self.size_combo.setCurrentText(str(int(point_size)))
