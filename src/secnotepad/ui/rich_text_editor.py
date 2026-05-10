@@ -1,17 +1,53 @@
 """Rich text editor widget for SecNotepad Phase 04."""
 
+import re
 from collections.abc import Callable
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import (QAction, QActionGroup, QColor, QFont,
                             QTextBlockFormat, QTextCharFormat, QTextCursor,
-                            QTextListFormat)
-from PySide6.QtWidgets import (QColorDialog, QComboBox, QFontComboBox, QStyle,
-                                QTextEdit, QToolBar, QVBoxLayout, QWidget)
+                            QTextDocumentFragment, QTextListFormat)
+from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox,
+                                QFontComboBox, QStyle, QTextEdit, QToolBar,
+                                QVBoxLayout, QWidget)
 
 
 class SafeRichTextEdit(QTextEdit):
     """QTextEdit with Phase 04 paste/resource safety boundaries."""
+
+    paste_sanitized = Signal()
+
+    def canInsertFromMimeData(self, source) -> bool:
+        """Allow text/HTML insertion and reject image/URL-only MIME payloads."""
+        if source.hasText() or source.hasHtml():
+            return True
+        if source.hasImage() or source.hasUrls():
+            return False
+        return super().canInsertFromMimeData(source)
+
+    def insertFromMimeData(self, source) -> None:
+        """Downgrade unsafe HTML paste payloads to plain text."""
+        if source.hasHtml() and self._html_has_blocked_resources(source.html()):
+            if source.hasText():
+                self.insertPlainText(source.text())
+            self.paste_sanitized.emit()
+            return
+        super().insertFromMimeData(source)
+
+    def _html_has_blocked_resources(self, html: str) -> bool:
+        lowered = html.lower()
+        blocked_patterns = (
+            '<img',
+            'src="file:',
+            "src='file:",
+            'src="http:',
+            "src='http:",
+            'src="https:',
+            "src='https:",
+            '<script',
+            'javascript:',
+        )
+        return any(pattern in lowered for pattern in blocked_patterns) or re.search(r"\son[a-z]+\s*=", lowered) is not None
 
 
 class RichTextEditorWidget(QWidget):
@@ -19,6 +55,10 @@ class RichTextEditorWidget(QWidget):
 
     content_changed = Signal(str)
     paste_sanitized = Signal()
+    status_message_requested = Signal(str)
+    undo_available_changed = Signal(bool)
+    redo_available_changed = Signal(bool)
+    copy_available_changed = Signal(bool)
 
     COMMON_FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48]
 
@@ -26,6 +66,7 @@ class RichTextEditorWidget(QWidget):
         super().__init__(parent)
         self._status_callback: Callable[[str], None] | None = None
         self._syncing_toolbar = False
+        self._zoom_steps = 0
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -66,15 +107,68 @@ class RichTextEditorWidget(QWidget):
             self._editor.blockSignals(False)
 
     def to_html(self) -> str:
-        """Return the current editor content as Qt HTML."""
-        return self._editor.toHtml()
+        """Return current content as HTML without Qt's external doctype URL."""
+        html = self._editor.toHtml()
+        return re.sub(r'<!DOCTYPE[^>]*>\s*', '', html, count=1, flags=re.IGNORECASE)
 
     def set_status_callback(self, callback: Callable[[str], None] | None) -> None:
         """Set an optional callback for user-visible status messages."""
         self._status_callback = callback
 
+    def undo(self) -> None:
+        """Undo the latest edit in the underlying QTextEdit document."""
+        self._editor.undo()
+
+    def redo(self) -> None:
+        """Redo the latest undone edit in the underlying QTextEdit document."""
+        self._editor.redo()
+
+    def cut(self) -> None:
+        """Cut selected text through QTextEdit's standard clipboard handling."""
+        self._editor.cut()
+
+    def copy(self) -> None:
+        """Copy selected text through QTextEdit's standard clipboard handling."""
+        self._editor.copy()
+
+    def paste(self) -> None:
+        """Paste through SafeRichTextEdit's MIME safety boundary."""
+        self._editor.paste()
+
+    def can_paste(self) -> bool:
+        """Return True when the clipboard contains text or HTML."""
+        mime_data = QApplication.clipboard().mimeData()
+        return mime_data.hasText() or mime_data.hasHtml()
+
+    @property
     def zoom_percent(self) -> int:
-        """Return current zoom percentage. Detailed zoom is implemented later."""
+        """Return current session-only zoom percentage."""
+        return 100 + self._zoom_steps * 10
+
+    def zoom_in(self) -> int:
+        """Increase editor display zoom for this session only."""
+        self._editor.zoomIn(1)
+        self._zoom_steps += 1
+        percent = self.zoom_percent
+        self._set_status(f"缩放：{percent}%")
+        return percent
+
+    def zoom_out(self) -> int:
+        """Decrease editor display zoom for this session only."""
+        self._editor.zoomOut(1)
+        self._zoom_steps -= 1
+        percent = self.zoom_percent
+        self._set_status(f"缩放：{percent}%")
+        return percent
+
+    def reset_zoom(self) -> int:
+        """Reset editor display zoom to 100% without changing content."""
+        if self._zoom_steps > 0:
+            self._editor.zoomOut(self._zoom_steps)
+        elif self._zoom_steps < 0:
+            self._editor.zoomIn(abs(self._zoom_steps))
+        self._zoom_steps = 0
+        self._set_status("缩放：100%")
         return 100
 
     def _setup_toolbar(self) -> None:
@@ -98,6 +192,36 @@ class RichTextEditorWidget(QWidget):
         self.size_combo.addItems([str(size) for size in self.COMMON_FONT_SIZES])
         self.size_combo.setCurrentText("14")
         self._format_toolbar.addWidget(self.size_combo)
+
+        self._format_toolbar.addSeparator()
+        self.action_undo = QAction("撤销", self)
+        self.action_undo.setToolTip("撤销")
+        self.action_undo.setEnabled(False)
+        self.action_undo.triggered.connect(self.undo)
+        self._format_toolbar.addAction(self.action_undo)
+
+        self.action_redo = QAction("重做", self)
+        self.action_redo.setToolTip("重做")
+        self.action_redo.setEnabled(False)
+        self.action_redo.triggered.connect(self.redo)
+        self._format_toolbar.addAction(self.action_redo)
+
+        self.action_cut = QAction("剪切", self)
+        self.action_cut.setToolTip("剪切")
+        self.action_cut.setEnabled(False)
+        self.action_cut.triggered.connect(self.cut)
+        self._format_toolbar.addAction(self.action_cut)
+
+        self.action_copy = QAction("复制", self)
+        self.action_copy.setToolTip("复制")
+        self.action_copy.setEnabled(False)
+        self.action_copy.triggered.connect(self.copy)
+        self._format_toolbar.addAction(self.action_copy)
+
+        self.action_paste = QAction("粘贴", self)
+        self.action_paste.setToolTip("粘贴")
+        self.action_paste.triggered.connect(self.paste)
+        self._format_toolbar.addAction(self.action_paste)
 
         self._format_toolbar.addSeparator()
         self.action_bold = self._add_checkable_action("加粗", self._on_bold)
@@ -133,6 +257,14 @@ class RichTextEditorWidget(QWidget):
         self._editor.textChanged.connect(self._emit_content_changed)
         self._editor.currentCharFormatChanged.connect(self._sync_char_format)
         self._editor.cursorPositionChanged.connect(self._sync_block_format)
+        self._editor.document().undoAvailable.connect(self.undo_available_changed)
+        self._editor.document().undoAvailable.connect(self.action_undo.setEnabled)
+        self._editor.document().redoAvailable.connect(self.redo_available_changed)
+        self._editor.document().redoAvailable.connect(self.action_redo.setEnabled)
+        self._editor.copyAvailable.connect(self.copy_available_changed)
+        self._editor.copyAvailable.connect(self.action_cut.setEnabled)
+        self._editor.copyAvailable.connect(self.action_copy.setEnabled)
+        self._editor.paste_sanitized.connect(self._on_paste_sanitized)
 
     def _add_checkable_action(self, text: str, slot: Callable[[bool], None]) -> QAction:
         action = QAction(text, self)
@@ -194,7 +326,7 @@ class RichTextEditorWidget(QWidget):
         self.action_indent = self.action_indent_more
 
     def _emit_content_changed(self) -> None:
-        self.content_changed.emit(self._editor.toHtml())
+        self.content_changed.emit(self.to_html())
 
     def _merge_char_format(self, fmt: QTextCharFormat) -> None:
         cursor = self._editor.textCursor()
@@ -347,8 +479,13 @@ class RichTextEditorWidget(QWidget):
         return QColorDialog.getColor(parent=self)
 
     def _set_status(self, message: str) -> None:
+        self.status_message_requested.emit(message)
         if self._status_callback is not None:
             self._status_callback(message)
+
+    def _on_paste_sanitized(self) -> None:
+        self.paste_sanitized.emit()
+        self._set_status("已粘贴文本内容；图片和外部资源未导入")
 
     def _sync_char_format(self, char_format: QTextCharFormat) -> None:
         self._syncing_toolbar = True
