@@ -29,7 +29,7 @@ def _select_all(editor_widget):
 
 def test_editing_page_updates_note_html_and_dirty(editor_widget):
     changes = []
-    editor_widget.content_changed.connect(lambda: changes.append("changed"))
+    editor_widget.content_changed.connect(lambda _html: changes.append("changed"))
 
     editor_widget.load_html("<p>旧内容</p>")
     assert changes == []
@@ -38,7 +38,7 @@ def test_editing_page_updates_note_html_and_dirty(editor_widget):
     editor = editor_widget.editor()
     editor.setFocus()
     editor.selectAll()
-    QTest.keyClicks(editor, "新内容")
+    editor.insertPlainText("新内容")
 
     assert changes
     assert "新内容" in editor_widget.to_html()
