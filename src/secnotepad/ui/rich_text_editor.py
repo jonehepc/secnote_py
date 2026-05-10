@@ -1,13 +1,15 @@
 """Rich text editor widget for SecNotepad Phase 04."""
 
+import re
 from collections.abc import Callable
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import (QAction, QActionGroup, QColor, QFont,
                             QTextBlockFormat, QTextCharFormat, QTextCursor,
                             QTextListFormat)
-from PySide6.QtWidgets import (QColorDialog, QComboBox, QFontComboBox, QStyle,
-                                QTextEdit, QToolBar, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox,
+                                QFontComboBox, QStyle, QTextEdit, QToolBar,
+                                QVBoxLayout, QWidget)
 
 
 class SafeRichTextEdit(QTextEdit):
@@ -19,6 +21,10 @@ class RichTextEditorWidget(QWidget):
 
     content_changed = Signal(str)
     paste_sanitized = Signal()
+    status_message_requested = Signal(str)
+    undo_available_changed = Signal(bool)
+    redo_available_changed = Signal(bool)
+    copy_available_changed = Signal(bool)
 
     COMMON_FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48]
 
@@ -26,6 +32,7 @@ class RichTextEditorWidget(QWidget):
         super().__init__(parent)
         self._status_callback: Callable[[str], None] | None = None
         self._syncing_toolbar = False
+        self._zoom_steps = 0
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -73,9 +80,34 @@ class RichTextEditorWidget(QWidget):
         """Set an optional callback for user-visible status messages."""
         self._status_callback = callback
 
+    def undo(self) -> None:
+        """Undo the latest edit in the underlying QTextEdit document."""
+        self._editor.undo()
+
+    def redo(self) -> None:
+        """Redo the latest undone edit in the underlying QTextEdit document."""
+        self._editor.redo()
+
+    def cut(self) -> None:
+        """Cut selected text through QTextEdit's standard clipboard handling."""
+        self._editor.cut()
+
+    def copy(self) -> None:
+        """Copy selected text through QTextEdit's standard clipboard handling."""
+        self._editor.copy()
+
+    def paste(self) -> None:
+        """Paste through SafeRichTextEdit's MIME safety boundary."""
+        self._editor.paste()
+
+    def can_paste(self) -> bool:
+        """Return True when the clipboard contains text or HTML."""
+        mime_data = QApplication.clipboard().mimeData()
+        return mime_data.hasText() or mime_data.hasHtml()
+
     def zoom_percent(self) -> int:
-        """Return current zoom percentage. Detailed zoom is implemented later."""
-        return 100
+        """Return current session-only zoom percentage."""
+        return 100 + self._zoom_steps * 10
 
     def _setup_toolbar(self) -> None:
         """Create toolbar controls in UI-SPEC order."""
@@ -98,6 +130,36 @@ class RichTextEditorWidget(QWidget):
         self.size_combo.addItems([str(size) for size in self.COMMON_FONT_SIZES])
         self.size_combo.setCurrentText("14")
         self._format_toolbar.addWidget(self.size_combo)
+
+        self._format_toolbar.addSeparator()
+        self.action_undo = QAction("撤销", self)
+        self.action_undo.setToolTip("撤销")
+        self.action_undo.setEnabled(False)
+        self.action_undo.triggered.connect(self.undo)
+        self._format_toolbar.addAction(self.action_undo)
+
+        self.action_redo = QAction("重做", self)
+        self.action_redo.setToolTip("重做")
+        self.action_redo.setEnabled(False)
+        self.action_redo.triggered.connect(self.redo)
+        self._format_toolbar.addAction(self.action_redo)
+
+        self.action_cut = QAction("剪切", self)
+        self.action_cut.setToolTip("剪切")
+        self.action_cut.setEnabled(False)
+        self.action_cut.triggered.connect(self.cut)
+        self._format_toolbar.addAction(self.action_cut)
+
+        self.action_copy = QAction("复制", self)
+        self.action_copy.setToolTip("复制")
+        self.action_copy.setEnabled(False)
+        self.action_copy.triggered.connect(self.copy)
+        self._format_toolbar.addAction(self.action_copy)
+
+        self.action_paste = QAction("粘贴", self)
+        self.action_paste.setToolTip("粘贴")
+        self.action_paste.triggered.connect(self.paste)
+        self._format_toolbar.addAction(self.action_paste)
 
         self._format_toolbar.addSeparator()
         self.action_bold = self._add_checkable_action("加粗", self._on_bold)
@@ -133,6 +195,13 @@ class RichTextEditorWidget(QWidget):
         self._editor.textChanged.connect(self._emit_content_changed)
         self._editor.currentCharFormatChanged.connect(self._sync_char_format)
         self._editor.cursorPositionChanged.connect(self._sync_block_format)
+        self._editor.document().undoAvailable.connect(self.undo_available_changed)
+        self._editor.document().undoAvailable.connect(self.action_undo.setEnabled)
+        self._editor.document().redoAvailable.connect(self.redo_available_changed)
+        self._editor.document().redoAvailable.connect(self.action_redo.setEnabled)
+        self._editor.copyAvailable.connect(self.copy_available_changed)
+        self._editor.copyAvailable.connect(self.action_cut.setEnabled)
+        self._editor.copyAvailable.connect(self.action_copy.setEnabled)
 
     def _add_checkable_action(self, text: str, slot: Callable[[bool], None]) -> QAction:
         action = QAction(text, self)
