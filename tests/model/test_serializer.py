@@ -221,6 +221,30 @@ class TestSerializerFromJson:
         assert len(restored.children) == 3
         assert restored.children[0].children[0].title == "L2-0-0"
 
+    def test_rich_text_html_content_roundtrip(self):
+        """富文本 HTML 字符串经 JSON round-trip 后原样保留。"""
+        html = (
+            '<h1>标题</h1><p><span style="color:#ff0000; '
+            'background-color:#ffff00;">中文内容</span></p>'
+            '<ul><li>项目</li></ul><p>☐ 待办</p>'
+        )
+        item = SNoteItem.new_note("富文本", html)
+
+        json_str = Serializer.to_json(item)
+        restored = Serializer.from_json(json_str)
+
+        assert restored.content == html
+
+    def test_zoom_state_not_serialized(self):
+        """缩放状态是会话显示偏好，不进入序列化数据。"""
+        item = SNoteItem.new_note("缩放", "<p>内容</p>")
+
+        data = json.loads(Serializer.to_json(item))["data"]
+
+        assert "zoom" not in data
+        assert "zoom_percent" not in data
+        assert "scale" not in data
+
 
 class TestSerializerEdgeCases:
     """Serializer 边界情况."""
