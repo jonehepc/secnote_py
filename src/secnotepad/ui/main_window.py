@@ -6,7 +6,7 @@ from PySide6.QtGui import QAction, QKeySequence, QCloseEvent, QShortcut
 from PySide6.QtWidgets import (QMainWindow, QWidget, QSplitter,
                                 QTreeView, QListView, QStackedWidget,
                                 QStyle, QVBoxLayout, QMessageBox,
-                                QFileDialog, QDialog,
+                                QFileDialog, QDialog, QMenu,
                                 QTextEdit, QLabel, QAbstractItemView,
                                 QPushButton, QFrame, QHBoxLayout)
 from PySide6.QtCore import Qt, QModelIndex
@@ -19,6 +19,7 @@ from .welcome_widget import WelcomeWidget
 from ..crypto.file_service import FileService
 from ..model.serializer import Serializer
 from .password_dialog import PasswordDialog, PasswordMode
+from .rich_text_editor import RichTextEditorWidget
 
 
 class MainWindow(QMainWindow):
@@ -36,7 +37,10 @@ class MainWindow(QMainWindow):
         # ── 导航系统状态 (Phase 3) ──
         self._section_filter: SectionFilterProxy = None
         self._page_list_model: PageListModel = None
+        self._rich_text_editor: RichTextEditorWidget = None
         self._editor_preview: QTextEdit = None
+        self._format_toolbar = None
+        self._editor_container: QWidget = None
         self._editor_stack: QStackedWidget = None
         self._editor_placeholder_label: QLabel = None
         self._tree_button_bar: QFrame = None
@@ -82,9 +86,12 @@ class MainWindow(QMainWindow):
     def _setup_menu_bar(self):
         """设置菜单栏 (D-16)"""
         mb = self.menuBar()
+        mb.setNativeMenuBar(False)
 
         # ── 文件菜单 ──
-        file_menu = mb.addMenu("文件(&F)")
+        self._file_menu = QMenu("文件(&F)", self)
+        mb.addMenu(self._file_menu)
+        file_menu = self._file_menu
 
         self._act_new = QAction("新建(&N)", self)
         file_menu.addAction(self._act_new)
@@ -110,24 +117,53 @@ class MainWindow(QMainWindow):
         self._act_exit.triggered.connect(self.close)
         file_menu.addAction(self._act_exit)
 
-        # ── 编辑菜单（全部灰显）──
-        edit_menu = mb.addMenu("编辑(&E)")
-        edit_texts = ["撤销(&U)", "重做(&R)", "剪切(&T)", "复制(&C)", "粘贴(&P)"]
-        self._edit_actions = []
-        for text in edit_texts:
-            act = QAction(text, self)
-            act.setEnabled(False)                  # D-16: 灰显
+        # ── 编辑菜单 ──
+        self._edit_menu = QMenu("编辑(&E)", self)
+        mb.addMenu(self._edit_menu)
+        edit_menu = self._edit_menu
+        self._act_undo = QAction("撤销(&U)", self)
+        self._act_undo.setShortcut(QKeySequence.StandardKey.Undo)
+        self._act_redo = QAction("重做(&R)", self)
+        self._act_redo.setShortcut(QKeySequence("Ctrl+Y"))
+        self._act_cut = QAction("剪切(&T)", self)
+        self._act_cut.setShortcut(QKeySequence.StandardKey.Cut)
+        self._act_copy = QAction("复制(&C)", self)
+        self._act_copy.setShortcut(QKeySequence.StandardKey.Copy)
+        self._act_paste = QAction("粘贴(&P)", self)
+        self._act_paste.setShortcut(QKeySequence.StandardKey.Paste)
+        self._edit_actions = [
+            self._act_undo,
+            self._act_redo,
+            self._act_cut,
+            self._act_copy,
+            self._act_paste,
+        ]
+        for act in self._edit_actions:
+            act.setEnabled(False)
             edit_menu.addAction(act)
-            self._edit_actions.append(act)
 
         # ── 视图菜单 ──
-        view_menu = mb.addMenu("视图(&V)")
+        self._view_menu = QMenu("视图(&V)", self)
+        mb.addMenu(self._view_menu)
+        view_menu = self._view_menu
         self._act_toggle_panels = QAction("切换面板显示", self)
         self._act_toggle_panels.setEnabled(False)   # D-16: 灰显
         view_menu.addAction(self._act_toggle_panels)
+        view_menu.addSeparator()
+        self._act_zoom_in = QAction("放大", self)
+        self._act_zoom_in.setShortcut(QKeySequence("Ctrl++"))
+        view_menu.addAction(self._act_zoom_in)
+        self._act_zoom_out = QAction("缩小", self)
+        self._act_zoom_out.setShortcut(QKeySequence("Ctrl+-"))
+        view_menu.addAction(self._act_zoom_out)
+        self._act_zoom_reset = QAction("重置缩放", self)
+        self._act_zoom_reset.setShortcut(QKeySequence("Ctrl+0"))
+        view_menu.addAction(self._act_zoom_reset)
 
         # ── 帮助菜单 ──
-        help_menu = mb.addMenu("帮助(&H)")
+        self._help_menu = QMenu("帮助(&H)", self)
+        mb.addMenu(self._help_menu)
+        help_menu = self._help_menu
         self._act_about = QAction("关于(&A)...", self)
         self._act_about.setEnabled(False)           # D-16: 灰显
         help_menu.addAction(self._act_about)
@@ -216,7 +252,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(mid_container)           # 中间
 
         self._setup_editor_area()
-        splitter.addWidget(self._editor_stack)         # 右侧
+        splitter.addWidget(self._editor_container)     # 右侧
 
         splitter.setSizes([200, 250, 750])           # D-12
         splitter.setCollapsible(0, True)             # D-13: 左可折叠
@@ -230,16 +266,31 @@ class MainWindow(QMainWindow):
     # ── 编辑区 (Phase 3) ──
 
     def _setup_editor_area(self):
-        """创建右侧编辑区: 只读预览 + placeholder 堆叠 (D-62, D-63)。
+        """创建右侧富文本编辑区 + placeholder 堆叠 (D-62, D-63, D-65)。
 
-        使用 QStackedWidget 切换两种状态:
-          index 0 = QTextEdit (只读 HTML 预览)
+        右侧容器固定放置格式工具栏，下方使用 QStackedWidget 切换两种状态:
+          index 0 = QTextEdit
           index 1 = QLabel ("请在页面列表中选择一个页面")
         默认为 placeholder (index 1)。
         """
-        self._editor_preview = QTextEdit()
-        self._editor_preview.setReadOnly(False)
-        self._editor_preview.textChanged.connect(self._on_editor_text_changed)
+        self._editor_container = QWidget()
+        editor_layout = QVBoxLayout(self._editor_container)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        editor_layout.setSpacing(8)
+
+        self._rich_text_editor = RichTextEditorWidget(self._editor_container)
+        self._rich_text_editor.set_status_callback(
+            lambda message: self.statusBar().showMessage(message)
+        )
+        self._rich_text_editor.content_changed.connect(
+            self._on_editor_content_changed
+        )
+        self._editor_preview = self._rich_text_editor.editor()
+        self._format_toolbar = self._rich_text_editor.format_toolbar()
+        self._format_toolbar.setParent(self._editor_container)
+        editor_layout.addWidget(self._format_toolbar)
+        self._rich_text_editor.layout().removeWidget(self._format_toolbar)
+        self._rich_text_editor.set_editor_enabled(False)
 
         self._editor_placeholder_label = QLabel(
             "请在页面列表中选择一个页面"
@@ -249,10 +300,11 @@ class MainWindow(QMainWindow):
             "color: #888; font-size: 14px;"
         )
 
-        self._editor_stack = QStackedWidget()
-        self._editor_stack.addWidget(self._editor_preview)          # index 0
+        self._editor_stack = QStackedWidget(self._editor_container)
+        self._editor_stack.addWidget(self._rich_text_editor.editor())  # index 0
         self._editor_stack.addWidget(self._editor_placeholder_label)  # index 1
         self._editor_stack.setCurrentIndex(1)  # 默认显示 placeholder
+        editor_layout.addWidget(self._editor_stack)
 
     # ── 导航系统 (Phase 3) ──
 
@@ -440,15 +492,17 @@ class MainWindow(QMainWindow):
             self._show_editor_placeholder()
 
     def _show_editor_placeholder(self):
-        """显示 placeholder 提示文字 (D-63)。"""
+        """显示 placeholder 提示文字 (D-63)，不写回当前页面。"""
         self._editor_stack.setCurrentIndex(1)
-        self._editor_preview.blockSignals(True)
-        try:
-            self._editor_preview.clear()
-        finally:
-            self._editor_preview.blockSignals(False)
+        self._rich_text_editor.load_html("")
+        self._rich_text_editor.set_editor_enabled(False)
+        self._update_edit_action_states()
 
     def _on_editor_text_changed(self):
+        """兼容旧测试入口：同步当前富文本 HTML。"""
+        self._on_editor_content_changed(self._rich_text_editor.to_html())
+
+    def _on_editor_content_changed(self, html: str):
         """编辑器内容变化时同步回当前页面并标记脏状态。"""
         if self._editor_stack.currentIndex() != 0:
             return
@@ -458,19 +512,40 @@ class MainWindow(QMainWindow):
         note = self._page_list_model.note_at(current)
         if note is None:
             return
-        html = self._editor_preview.toHtml()
         if note.content != html:
             note.content = html
             self.mark_dirty()
 
     def _show_note_in_editor(self, note: SNoteItem):
         """显示页面内容到右侧编辑器，避免触发无意义脏标记。"""
-        self._editor_preview.blockSignals(True)
-        try:
-            self._editor_preview.setHtml(note.content or "")
-        finally:
-            self._editor_preview.blockSignals(False)
+        self._rich_text_editor.load_html(note.content or "")
         self._editor_stack.setCurrentIndex(0)
+        self._rich_text_editor.set_editor_enabled(True)
+        self._update_edit_action_states()
+
+    def _update_edit_action_states(self):
+        """按当前页面和富文本编辑器文档状态更新编辑菜单。"""
+        has_page = self._editor_stack.currentIndex() == 0
+        if self._page_list_model is not None:
+            has_page = has_page and self._page_list_model.note_at(
+                self._list_view.currentIndex()
+            ) is not None
+        if not has_page:
+            for act in self._edit_actions:
+                act.setEnabled(False)
+            return
+
+        document = self._rich_text_editor.editor().document()
+        has_selection = self._rich_text_editor.editor().textCursor().hasSelection()
+        self._act_undo.setEnabled(document.isUndoAvailable())
+        self._act_redo.setEnabled(document.isRedoAvailable())
+        self._act_cut.setEnabled(has_selection)
+        self._act_copy.setEnabled(has_selection)
+        try:
+            can_paste = self._rich_text_editor.can_paste()
+        except AttributeError:
+            can_paste = True
+        self._act_paste.setEnabled(can_paste)
 
     def _setup_tree_context_menu(self):
         """分区树右键菜单 (D-56)。
@@ -848,6 +923,48 @@ class MainWindow(QMainWindow):
         self._tb_save.triggered.connect(self._on_save)
         self._act_save_as.triggered.connect(self._on_save_as)
         self._tb_saveas.triggered.connect(self._on_save_as)
+
+        # Phase 4: 编辑菜单路由到当前富文本编辑器
+        self._act_undo.triggered.connect(self._rich_text_editor.undo)
+        self._act_redo.triggered.connect(self._rich_text_editor.redo)
+        self._act_cut.triggered.connect(self._rich_text_editor.cut)
+        self._act_copy.triggered.connect(self._rich_text_editor.copy)
+        self._act_paste.triggered.connect(self._rich_text_editor.paste)
+        self._rich_text_editor.undo_available_changed.connect(
+            lambda enabled: self._act_undo.setEnabled(
+                enabled and self._editor_stack.currentIndex() == 0
+            )
+        )
+        self._rich_text_editor.redo_available_changed.connect(
+            lambda enabled: self._act_redo.setEnabled(
+                enabled and self._editor_stack.currentIndex() == 0
+            )
+        )
+        self._rich_text_editor.copy_available_changed.connect(
+            lambda enabled: self._act_copy.setEnabled(
+                enabled and self._editor_stack.currentIndex() == 0
+            )
+        )
+        self._rich_text_editor.copy_available_changed.connect(
+            lambda enabled: self._act_cut.setEnabled(
+                enabled and self._editor_stack.currentIndex() == 0
+            )
+        )
+        self._act_zoom_in.triggered.connect(self._on_zoom_in)
+        self._act_zoom_out.triggered.connect(self._on_zoom_out)
+        self._act_zoom_reset.triggered.connect(self._on_zoom_reset)
+
+    def _on_zoom_in(self):
+        """放大当前富文本编辑器显示，不修改页面内容。"""
+        self._rich_text_editor.zoom_in()
+
+    def _on_zoom_out(self):
+        """缩小当前富文本编辑器显示，不修改页面内容。"""
+        self._rich_text_editor.zoom_out()
+
+    def _on_zoom_reset(self):
+        """重置当前富文本编辑器显示缩放，不修改页面内容。"""
+        self._rich_text_editor.reset_zoom()
 
     def _on_new_notebook(self):
         """新建空白笔记本 (D-14)"""
