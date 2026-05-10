@@ -119,6 +119,12 @@ class RichTextEditorWidget(QWidget):
         self._format_toolbar.addSeparator()
         self._setup_alignment_actions()
 
+        self._format_toolbar.addSeparator()
+        self._setup_list_actions()
+
+        self._format_toolbar.addSeparator()
+        self._setup_indent_actions()
+
         self.paragraph_style_combo.currentTextChanged.connect(self._on_paragraph_style_changed)
         self.font_combo.currentFontChanged.connect(self._on_font_changed)
         self.size_combo.currentTextChanged.connect(self._on_size_changed)
@@ -152,6 +158,40 @@ class RichTextEditorWidget(QWidget):
         action.triggered.connect(lambda _checked=False, value=alignment: self._on_alignment_changed(value))
         self._format_toolbar.addAction(action)
         return action
+
+    def _setup_list_actions(self) -> None:
+        self.action_bullet_list = QAction("无序列表", self)
+        self.action_bullet_list.setToolTip("无序列表")
+        self.action_bullet_list.triggered.connect(
+            lambda: self._create_list(QTextListFormat.Style.ListDisc)
+        )
+        self._format_toolbar.addAction(self.action_bullet_list)
+
+        self.action_numbered_list = QAction("有序列表", self)
+        self.action_numbered_list.setToolTip("有序列表")
+        self.action_numbered_list.triggered.connect(
+            lambda: self._create_list(QTextListFormat.Style.ListDecimal)
+        )
+        self._format_toolbar.addAction(self.action_numbered_list)
+        self.action_ordered_list = self.action_numbered_list
+
+        self.action_todo_list = QAction("待办列表", self)
+        self.action_todo_list.setToolTip("待办列表")
+        self.action_todo_list.triggered.connect(self._insert_todo_item)
+        self._format_toolbar.addAction(self.action_todo_list)
+
+    def _setup_indent_actions(self) -> None:
+        self.action_indent_less = QAction("减少缩进", self)
+        self.action_indent_less.setToolTip("减少缩进")
+        self.action_indent_less.triggered.connect(lambda: self._adjust_indent(-1))
+        self._format_toolbar.addAction(self.action_indent_less)
+        self.action_outdent = self.action_indent_less
+
+        self.action_indent_more = QAction("增加缩进", self)
+        self.action_indent_more.setToolTip("增加缩进")
+        self.action_indent_more.triggered.connect(lambda: self._adjust_indent(1))
+        self._format_toolbar.addAction(self.action_indent_more)
+        self.action_indent = self.action_indent_more
 
     def _emit_content_changed(self) -> None:
         self.content_changed.emit(self._editor.toHtml())
@@ -223,6 +263,66 @@ class RichTextEditorWidget(QWidget):
         if self._syncing_toolbar:
             return
         self._editor.setAlignment(alignment)
+        self._editor.setFocus()
+
+    def _create_list(self, style: QTextListFormat.Style) -> None:
+        cursor = self._editor.textCursor()
+        cursor.beginEditBlock()
+        try:
+            current_list = cursor.currentList()
+            list_fmt = QTextListFormat()
+            list_fmt.setStyle(style)
+            if current_list is not None:
+                list_fmt.setIndent(max(1, current_list.format().indent()))
+            else:
+                block_indent = cursor.blockFormat().indent()
+                list_fmt.setIndent(max(1, block_indent))
+            cursor.createList(list_fmt)
+        finally:
+            cursor.endEditBlock()
+        self._editor.setTextCursor(cursor)
+        self._editor.setFocus()
+
+    def _insert_todo_item(self) -> None:
+        cursor = self._editor.textCursor()
+        start = min(cursor.selectionStart(), cursor.selectionEnd())
+        end = max(cursor.selectionStart(), cursor.selectionEnd())
+        doc = self._editor.document()
+
+        cursor.beginEditBlock()
+        try:
+            block = doc.findBlock(start)
+            end_block = doc.findBlock(end)
+            end_block_number = end_block.blockNumber() if end_block.isValid() else block.blockNumber()
+            while block.isValid() and block.blockNumber() <= end_block_number:
+                if not block.text().startswith("☐ "):
+                    block_cursor = QTextCursor(block)
+                    block_cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+                    block_cursor.insertText("☐ ")
+                    end_block_number += 1 if block.position() <= end else 0
+                block = block.next()
+        finally:
+            cursor.endEditBlock()
+        self._editor.setTextCursor(cursor)
+        self._editor.setFocus()
+        self._set_status("已插入待办项")
+
+    def _adjust_indent(self, delta: int) -> None:
+        cursor = self._editor.textCursor()
+        cursor.beginEditBlock()
+        try:
+            current_list = cursor.currentList()
+            if current_list is not None:
+                list_fmt = current_list.format()
+                list_fmt.setIndent(max(1, list_fmt.indent() + delta))
+                current_list.setFormat(list_fmt)
+            else:
+                block_fmt = cursor.blockFormat()
+                block_fmt.setIndent(max(0, block_fmt.indent() + delta))
+                cursor.setBlockFormat(block_fmt)
+        finally:
+            cursor.endEditBlock()
+        self._editor.setTextCursor(cursor)
         self._editor.setFocus()
 
     def _on_text_color(self) -> None:
