@@ -140,9 +140,36 @@ class RichTextEditorWidget(QWidget):
         mime_data = QApplication.clipboard().mimeData()
         return mime_data.hasText() or mime_data.hasHtml()
 
+    @property
     def zoom_percent(self) -> int:
         """Return current session-only zoom percentage."""
         return 100 + self._zoom_steps * 10
+
+    def zoom_in(self) -> int:
+        """Increase editor display zoom for this session only."""
+        self._editor.zoomIn(1)
+        self._zoom_steps += 1
+        percent = self.zoom_percent
+        self._set_status(f"缩放：{percent}%")
+        return percent
+
+    def zoom_out(self) -> int:
+        """Decrease editor display zoom for this session only."""
+        self._editor.zoomOut(1)
+        self._zoom_steps -= 1
+        percent = self.zoom_percent
+        self._set_status(f"缩放：{percent}%")
+        return percent
+
+    def reset_zoom(self) -> int:
+        """Reset editor display zoom to 100% without changing content."""
+        if self._zoom_steps > 0:
+            self._editor.zoomOut(self._zoom_steps)
+        elif self._zoom_steps < 0:
+            self._editor.zoomIn(abs(self._zoom_steps))
+        self._zoom_steps = 0
+        self._set_status("缩放：100%")
+        return 100
 
     def _setup_toolbar(self) -> None:
         """Create toolbar controls in UI-SPEC order."""
