@@ -81,6 +81,7 @@ class RichTextEditorWidget(QWidget):
         """Create toolbar controls in UI-SPEC order."""
         self.paragraph_style_combo = QComboBox(self)
         self.paragraph_style_combo.setToolTip("段落样式")
+        self.paragraph_style_combo.setEditable(False)
         self.paragraph_style_combo.addItems(["正文", "H1", "H2", "H3", "H4", "H5", "H6"])
         self.paragraph_style_combo.setMinimumWidth(96)
         self._format_toolbar.addWidget(self.paragraph_style_combo)
@@ -115,18 +116,40 @@ class RichTextEditorWidget(QWidget):
         self.action_background_color.triggered.connect(self._on_background_color)
         self._format_toolbar.addAction(self.action_background_color)
 
+        self._format_toolbar.addSeparator()
+        self._setup_alignment_actions()
+
+        self.paragraph_style_combo.currentTextChanged.connect(self._on_paragraph_style_changed)
         self.font_combo.currentFontChanged.connect(self._on_font_changed)
         self.size_combo.currentTextChanged.connect(self._on_size_changed)
 
     def _connect_editor_signals(self) -> None:
         self._editor.textChanged.connect(self._emit_content_changed)
         self._editor.currentCharFormatChanged.connect(self._sync_char_format)
+        self._editor.cursorPositionChanged.connect(self._sync_block_format)
 
     def _add_checkable_action(self, text: str, slot: Callable[[bool], None]) -> QAction:
         action = QAction(text, self)
         action.setToolTip(text)
         action.setCheckable(True)
         action.triggered.connect(slot)
+        self._format_toolbar.addAction(action)
+        return action
+
+    def _setup_alignment_actions(self) -> None:
+        self.alignment_group = QActionGroup(self)
+        self.alignment_group.setExclusive(True)
+        self.action_align_left = self._add_alignment_action("左对齐", Qt.AlignLeft)
+        self.action_align_center = self._add_alignment_action("居中", Qt.AlignCenter)
+        self.action_align_right = self._add_alignment_action("右对齐", Qt.AlignRight)
+        self.action_align_justify = self._add_alignment_action("两端对齐", Qt.AlignJustify)
+
+    def _add_alignment_action(self, text: str, alignment: Qt.AlignmentFlag) -> QAction:
+        action = QAction(text, self)
+        action.setToolTip(text)
+        action.setCheckable(True)
+        self.alignment_group.addAction(action)
+        action.triggered.connect(lambda _checked=False, value=alignment: self._on_alignment_changed(value))
         self._format_toolbar.addAction(action)
         return action
 
@@ -181,6 +204,27 @@ class RichTextEditorWidget(QWidget):
         fmt.setFontPointSize(float(text))
         self._merge_char_format(fmt)
 
+    def _on_paragraph_style_changed(self, text: str) -> None:
+        if self._syncing_toolbar:
+            return
+        level = 0 if text == "正文" else int(text.removeprefix("H"))
+        cursor = self._editor.textCursor()
+        cursor.beginEditBlock()
+        try:
+            block_fmt = cursor.blockFormat()
+            block_fmt.setHeadingLevel(level)
+            cursor.setBlockFormat(block_fmt)
+        finally:
+            cursor.endEditBlock()
+        self._editor.setTextCursor(cursor)
+        self._editor.setFocus()
+
+    def _on_alignment_changed(self, alignment: Qt.AlignmentFlag) -> None:
+        if self._syncing_toolbar:
+            return
+        self._editor.setAlignment(alignment)
+        self._editor.setFocus()
+
     def _on_text_color(self) -> None:
         color = self._choose_color()
         if not color.isValid():
@@ -226,5 +270,26 @@ class RichTextEditorWidget(QWidget):
             point_size = char_format.fontPointSize()
             if point_size > 0:
                 self.size_combo.setCurrentText(str(int(point_size)))
+        finally:
+            self._syncing_toolbar = False
+
+    def _sync_block_format(self) -> None:
+        cursor = self._editor.textCursor()
+        block_fmt = cursor.blockFormat()
+        heading_level = block_fmt.headingLevel()
+        style_text = "正文" if heading_level <= 0 else f"H{min(heading_level, 6)}"
+        alignment = self._editor.alignment()
+
+        self._syncing_toolbar = True
+        try:
+            self.paragraph_style_combo.setCurrentText(style_text)
+            if alignment & Qt.AlignJustify:
+                self.action_align_justify.setChecked(True)
+            elif alignment & Qt.AlignRight:
+                self.action_align_right.setChecked(True)
+            elif alignment & Qt.AlignCenter:
+                self.action_align_center.setChecked(True)
+            else:
+                self.action_align_left.setChecked(True)
         finally:
             self._syncing_toolbar = False
