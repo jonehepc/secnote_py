@@ -212,9 +212,20 @@ class TestMenuBar:
         assert window._act_save_as.isEnabled() is False
 
     def test_edit_actions_disabled(self, window):
-        """编辑菜单全部灰显"""
+        """无页面选中时编辑菜单全部灰显；选中页面后按编辑器状态启用。"""
         for act in window._edit_actions:
             assert act.isEnabled() is False
+
+        window._on_new_notebook()
+        window._on_new_root_section()
+        window._on_new_page()
+
+        undo_action, redo_action, cut_action, copy_action, paste_action = window._edit_actions
+        assert undo_action.isEnabled() is False
+        assert redo_action.isEnabled() is False
+        assert cut_action.isEnabled() is False
+        assert copy_action.isEnabled() is False
+        assert paste_action.isEnabled() is True
 
     def test_view_action_disabled(self, window):
         """视图菜单灰显"""
