@@ -19,6 +19,7 @@ from .welcome_widget import WelcomeWidget
 from ..crypto.file_service import FileService
 from ..model.serializer import Serializer
 from .password_dialog import PasswordDialog, PasswordMode
+from .rich_text_editor import RichTextEditorWidget
 
 
 class MainWindow(QMainWindow):
@@ -36,7 +37,10 @@ class MainWindow(QMainWindow):
         # ── 导航系统状态 (Phase 3) ──
         self._section_filter: SectionFilterProxy = None
         self._page_list_model: PageListModel = None
+        self._rich_text_editor: RichTextEditorWidget = None
         self._editor_preview: QTextEdit = None
+        self._format_toolbar = None
+        self._editor_container: QWidget = None
         self._editor_stack: QStackedWidget = None
         self._editor_placeholder_label: QLabel = None
         self._tree_button_bar: QFrame = None
@@ -216,7 +220,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(mid_container)           # 中间
 
         self._setup_editor_area()
-        splitter.addWidget(self._editor_stack)         # 右侧
+        splitter.addWidget(self._editor_container)     # 右侧
 
         splitter.setSizes([200, 250, 750])           # D-12
         splitter.setCollapsible(0, True)             # D-13: 左可折叠
@@ -230,16 +234,31 @@ class MainWindow(QMainWindow):
     # ── 编辑区 (Phase 3) ──
 
     def _setup_editor_area(self):
-        """创建右侧编辑区: 只读预览 + placeholder 堆叠 (D-62, D-63)。
+        """创建右侧富文本编辑区 + placeholder 堆叠 (D-62, D-63, D-65)。
 
-        使用 QStackedWidget 切换两种状态:
-          index 0 = QTextEdit (只读 HTML 预览)
+        右侧容器固定放置格式工具栏，下方使用 QStackedWidget 切换两种状态:
+          index 0 = QTextEdit
           index 1 = QLabel ("请在页面列表中选择一个页面")
         默认为 placeholder (index 1)。
         """
-        self._editor_preview = QTextEdit()
-        self._editor_preview.setReadOnly(False)
-        self._editor_preview.textChanged.connect(self._on_editor_text_changed)
+        self._editor_container = QWidget()
+        editor_layout = QVBoxLayout(self._editor_container)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        editor_layout.setSpacing(8)
+
+        self._rich_text_editor = RichTextEditorWidget(self._editor_container)
+        self._rich_text_editor.set_status_callback(
+            lambda message: self.statusBar().showMessage(message)
+        )
+        self._rich_text_editor.content_changed.connect(
+            self._on_editor_content_changed
+        )
+        self._editor_preview = self._rich_text_editor.editor()
+        self._format_toolbar = self._rich_text_editor.format_toolbar()
+        self._format_toolbar.setParent(self._editor_container)
+        editor_layout.addWidget(self._format_toolbar)
+        self._rich_text_editor.layout().removeWidget(self._format_toolbar)
+        self._rich_text_editor.set_editor_enabled(False)
 
         self._editor_placeholder_label = QLabel(
             "请在页面列表中选择一个页面"
@@ -249,10 +268,11 @@ class MainWindow(QMainWindow):
             "color: #888; font-size: 14px;"
         )
 
-        self._editor_stack = QStackedWidget()
-        self._editor_stack.addWidget(self._editor_preview)          # index 0
+        self._editor_stack = QStackedWidget(self._editor_container)
+        self._editor_stack.addWidget(self._rich_text_editor.editor())  # index 0
         self._editor_stack.addWidget(self._editor_placeholder_label)  # index 1
         self._editor_stack.setCurrentIndex(1)  # 默认显示 placeholder
+        editor_layout.addWidget(self._editor_stack)
 
     # ── 导航系统 (Phase 3) ──
 
@@ -440,15 +460,16 @@ class MainWindow(QMainWindow):
             self._show_editor_placeholder()
 
     def _show_editor_placeholder(self):
-        """显示 placeholder 提示文字 (D-63)。"""
+        """显示 placeholder 提示文字 (D-63)，不写回当前页面。"""
         self._editor_stack.setCurrentIndex(1)
-        self._editor_preview.blockSignals(True)
-        try:
-            self._editor_preview.clear()
-        finally:
-            self._editor_preview.blockSignals(False)
+        self._rich_text_editor.load_html("")
+        self._rich_text_editor.set_editor_enabled(False)
 
     def _on_editor_text_changed(self):
+        """兼容旧测试入口：同步当前富文本 HTML。"""
+        self._on_editor_content_changed(self._rich_text_editor.to_html())
+
+    def _on_editor_content_changed(self, html: str):
         """编辑器内容变化时同步回当前页面并标记脏状态。"""
         if self._editor_stack.currentIndex() != 0:
             return
@@ -458,19 +479,15 @@ class MainWindow(QMainWindow):
         note = self._page_list_model.note_at(current)
         if note is None:
             return
-        html = self._editor_preview.toHtml()
         if note.content != html:
             note.content = html
             self.mark_dirty()
 
     def _show_note_in_editor(self, note: SNoteItem):
         """显示页面内容到右侧编辑器，避免触发无意义脏标记。"""
-        self._editor_preview.blockSignals(True)
-        try:
-            self._editor_preview.setHtml(note.content or "")
-        finally:
-            self._editor_preview.blockSignals(False)
+        self._rich_text_editor.load_html(note.content or "")
         self._editor_stack.setCurrentIndex(0)
+        self._rich_text_editor.set_editor_enabled(True)
 
     def _setup_tree_context_menu(self):
         """分区树右键菜单 (D-56)。
