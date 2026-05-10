@@ -149,6 +149,16 @@ class MainWindow(QMainWindow):
         self._act_toggle_panels = QAction("切换面板显示", self)
         self._act_toggle_panels.setEnabled(False)   # D-16: 灰显
         view_menu.addAction(self._act_toggle_panels)
+        view_menu.addSeparator()
+        self._act_zoom_in = QAction("放大", self)
+        self._act_zoom_in.setShortcut(QKeySequence("Ctrl++"))
+        view_menu.addAction(self._act_zoom_in)
+        self._act_zoom_out = QAction("缩小", self)
+        self._act_zoom_out.setShortcut(QKeySequence("Ctrl+-"))
+        view_menu.addAction(self._act_zoom_out)
+        self._act_zoom_reset = QAction("重置缩放", self)
+        self._act_zoom_reset.setShortcut(QKeySequence("Ctrl+0"))
+        view_menu.addAction(self._act_zoom_reset)
 
         # ── 帮助菜单 ──
         self._help_menu = QMenu("帮助(&H)", self)
@@ -940,6 +950,21 @@ class MainWindow(QMainWindow):
                 enabled and self._editor_stack.currentIndex() == 0
             )
         )
+        self._act_zoom_in.triggered.connect(self._on_zoom_in)
+        self._act_zoom_out.triggered.connect(self._on_zoom_out)
+        self._act_zoom_reset.triggered.connect(self._on_zoom_reset)
+
+    def _on_zoom_in(self):
+        """放大当前富文本编辑器显示，不修改页面内容。"""
+        self._rich_text_editor.zoom_in()
+
+    def _on_zoom_out(self):
+        """缩小当前富文本编辑器显示，不修改页面内容。"""
+        self._rich_text_editor.zoom_out()
+
+    def _on_zoom_reset(self):
+        """重置当前富文本编辑器显示缩放，不修改页面内容。"""
+        self._rich_text_editor.reset_zoom()
 
     def _on_new_notebook(self):
         """新建空白笔记本 (D-14)"""

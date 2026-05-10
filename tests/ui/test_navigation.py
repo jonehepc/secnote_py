@@ -843,7 +843,7 @@ class TestNavigationCRUD:
         editor = window_with_notebook._rich_text_editor.editor()
         editor.setFocus()
         editor.selectAll()
-        QTest.keyClicks(editor, "第一页已编辑明文")
+        editor.insertPlainText("第一页已编辑明文")
         assert "第一页已编辑明文" in first_note.content
 
         window_with_notebook._on_new_page()
