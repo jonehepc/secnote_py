@@ -2,7 +2,7 @@
 
 import pytest
 from PySide6.QtCore import QCoreApplication, QSettings, Qt
-from PySide6.QtWidgets import QSplitter, QStackedWidget, QMenuBar, QStatusBar
+from PySide6.QtWidgets import QSplitter, QStackedWidget, QMenuBar, QStatusBar, QToolBar
 from PySide6.QtTest import QTest
 
 from src.secnotepad.ui.main_window import MainWindow
@@ -445,3 +445,88 @@ class TestRecentFiles:
             for i in range(welcome.recent_list.count())
         )
         assert found, f"Expected {save_path} in recent files list"
+
+
+class TestRichTextIntegration:
+    """Phase 04: MainWindow 富文本编辑器集成 RED 测试。"""
+
+    def _new_page(self, window):
+        window._on_new_notebook()
+        window._on_new_root_section()
+        window._on_new_page()
+        current = window._list_view.currentIndex()
+        note = window._page_list_model.note_at(current)
+        assert note is not None
+        window._is_dirty = False
+        window._update_window_title()
+        return note
+
+    def _menu_action_texts(self, window, menu_title):
+        menu = next(
+            action.menu()
+            for action in window.menuBar().actions()
+            if menu_title in action.text()
+        )
+        return [action.text() for action in menu.actions()]
+
+    def test_format_toolbar_is_inside_editor_area(self, window):
+        window._on_new_notebook()
+        splitter = window._stack.widget(1)
+        right_panel = splitter.widget(2)
+
+        assert window._format_toolbar.parent() is right_panel
+        assert window._format_toolbar in right_panel.findChildren(QToolBar)
+
+        file_toolbar_texts = [action.text() for action in window.findChildren(QToolBar)[0].actions()]
+        forbidden = {"加粗", "斜体", "下划线", "删除线", "文字颜色", "背景色"}
+        assert forbidden.isdisjoint(file_toolbar_texts)
+
+    def test_format_toolbar_disabled_without_page_enabled_with_page(self, window):
+        window._on_new_notebook()
+        assert window._rich_text_editor.format_toolbar().isEnabled() is False
+
+        self._new_page(window)
+
+        assert window._rich_text_editor.format_toolbar().isEnabled() is True
+
+    def test_editor_menu_actions_route_to_rich_text_editor(self, window):
+        note = self._new_page(window)
+        edit_texts = self._menu_action_texts(window, "编辑")
+        assert edit_texts == ["撤销(&U)", "重做(&R)", "剪切(&T)", "复制(&C)", "粘贴(&P)"]
+
+        undo_action, redo_action, cut_action, copy_action, paste_action = window._edit_actions
+        assert paste_action.isEnabled() is True
+        assert undo_action.isEnabled() is False
+        assert redo_action.isEnabled() is False
+
+        editor = window._rich_text_editor.editor()
+        editor.setFocus()
+        QTest.keyClicks(editor, "abc")
+
+        assert "abc" in note.content
+        assert undo_action.isEnabled() is True
+        assert redo_action.isEnabled() is False
+
+    def test_view_menu_has_zoom_actions(self, window):
+        view_texts = self._menu_action_texts(window, "视图")
+        assert "放大" in view_texts
+        assert "缩小" in view_texts
+        assert "重置缩放" in view_texts
+        assert window._act_zoom_in.shortcut().toString() in {"Ctrl++", "Ctrl+Plus"}
+        assert window._act_zoom_out.shortcut().toString() == "Ctrl+-"
+        assert window._act_zoom_reset.shortcut().toString() == "Ctrl+0"
+
+    def test_zoom_actions_keep_note_html_and_dirty_state(self, window):
+        note = self._new_page(window)
+        note.content = "<p>保持内容</p>"
+        window._show_note_in_editor(note)
+        window._is_dirty = False
+
+        before = note.content
+        window._act_zoom_in.trigger()
+        window._act_zoom_out.trigger()
+        window._act_zoom_reset.trigger()
+
+        assert note.content == before
+        assert window._is_dirty is False
+        assert window.statusBar().currentMessage() == "缩放：100%"
