@@ -20,6 +20,7 @@ from ..crypto.file_service import FileService
 from ..model.serializer import Serializer
 from .password_dialog import PasswordDialog, PasswordMode
 from .rich_text_editor import RichTextEditorWidget
+from .tag_bar_widget import TagBarWidget
 
 
 class MainWindow(QMainWindow):
@@ -40,6 +41,7 @@ class MainWindow(QMainWindow):
         self._rich_text_editor: RichTextEditorWidget = None
         self._editor_preview: QTextEdit = None
         self._format_toolbar = None
+        self._tag_bar: TagBarWidget | None = None
         self._editor_container: QWidget = None
         self._editor_stack: QStackedWidget = None
         self._editor_placeholder_label: QLabel = None
@@ -288,6 +290,12 @@ class MainWindow(QMainWindow):
         self._editor_preview = self._rich_text_editor.editor()
         self._format_toolbar = self._rich_text_editor.format_toolbar()
         self._format_toolbar.setParent(self._editor_container)
+
+        self._tag_bar = TagBarWidget(self._editor_container)
+        self._tag_bar.tag_added.connect(self._on_tag_added)
+        self._tag_bar.tag_removed.connect(self._on_tag_removed)
+        self._tag_bar.set_tag_editing_enabled(False)
+        editor_layout.addWidget(self._tag_bar)
         editor_layout.addWidget(self._format_toolbar)
         self._rich_text_editor.layout().removeWidget(self._format_toolbar)
         self._rich_text_editor.set_editor_enabled(False)
@@ -491,11 +499,47 @@ class MainWindow(QMainWindow):
         else:
             self._show_editor_placeholder()
 
+    def _current_note(self) -> SNoteItem | None:
+        """Return the note currently selected in the page list."""
+        if self._page_list_model is None:
+            return None
+        return self._page_list_model.note_at(self._list_view.currentIndex())
+
+    def _iter_notes(self, item: SNoteItem | None):
+        """Yield note nodes from the current notebook tree in natural order."""
+        if item is None:
+            return
+        if item.item_type == "note":
+            yield item
+        for child in item.children:
+            yield from self._iter_notes(child)
+
+    def _collect_available_tags(self) -> list[str]:
+        """Collect current notebook tags for completion, casefold de-duped."""
+        seen: set[str] = set()
+        available: list[str] = []
+        for note in self._iter_notes(self._root_item):
+            for tag in note.tags:
+                key = tag.casefold()
+                if key not in seen:
+                    seen.add(key)
+                    available.append(tag)
+        return available
+
+    def _refresh_tag_bar(self, note: SNoteItem | None, enabled: bool) -> None:
+        """Refresh tag chips and completion candidates from current state."""
+        if self._tag_bar is None:
+            return
+        self._tag_bar.set_tags(list(note.tags) if note is not None else [])
+        self._tag_bar.set_available_tags(self._collect_available_tags())
+        self._tag_bar.set_tag_editing_enabled(enabled)
+
     def _show_editor_placeholder(self):
         """显示 placeholder 提示文字 (D-63)，不写回当前页面。"""
         self._editor_stack.setCurrentIndex(1)
         self._rich_text_editor.load_html("")
         self._rich_text_editor.set_editor_enabled(False)
+        self._refresh_tag_bar(None, False)
         self._update_edit_action_states()
 
     def _on_editor_text_changed(self):
@@ -521,7 +565,40 @@ class MainWindow(QMainWindow):
         self._rich_text_editor.load_html(note.content or "")
         self._editor_stack.setCurrentIndex(0)
         self._rich_text_editor.set_editor_enabled(True)
+        self._refresh_tag_bar(note, True)
         self._update_edit_action_states()
+
+    def _on_tag_added(self, tag: str) -> None:
+        """Add a validated tag to the current note and mark notebook dirty."""
+        note = self._current_note()
+        if note is None:
+            return
+        normalized = tag.strip()
+        if not normalized or len(normalized) > 32:
+            return
+        if normalized.casefold() in {existing.casefold() for existing in note.tags}:
+            self._refresh_tag_bar(note, True)
+            return
+
+        note.tags.append(normalized)
+        self._refresh_tag_bar(note, True)
+        self.mark_dirty()
+        self.statusBar().showMessage(f"已添加标签：{normalized}")
+
+    def _on_tag_removed(self, tag: str) -> None:
+        """Remove the first exact tag match from the current note and mark dirty."""
+        note = self._current_note()
+        if note is None:
+            return
+        try:
+            note.tags.remove(tag)
+        except ValueError:
+            self._refresh_tag_bar(note, True)
+            return
+
+        self._refresh_tag_bar(note, True)
+        self.mark_dirty()
+        self.statusBar().showMessage(f"已移除标签：{tag}")
 
     def _update_edit_action_states(self):
         """按当前页面和富文本编辑器文档状态更新编辑菜单。"""
