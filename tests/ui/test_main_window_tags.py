@@ -176,3 +176,27 @@ def test_available_tags_refreshes_from_current_notebook_only(window_with_page):
 
     assert window._collect_available_tags() == []
     assert window._tag_bar.tags() == []
+
+
+def test_added_chinese_space_tag_is_serialized_before_search_without_extra_fields(window_with_page):
+    """添加中文/空格标签后仅 tags 进入 JSON，搜索相关状态不随保存链路落盘。"""
+    window = window_with_page
+    note = current_note(window)
+    note.title = "协同页面"
+    note.content = "<p>正文没有安全关键词</p>"
+    note.tags = []
+    window._show_note_in_editor(note)
+    window._is_dirty = False
+
+    window._on_tag_added("安全 项目")
+
+    json_str = Serializer.to_json(window._root_item)
+    payload = json.loads(json_str)
+    note_payload = payload["data"]["children"][0]["children"][0]
+    assert note.tags == ["安全 项目"]
+    assert window._tag_bar.tags() == ["安全 项目"]
+    assert window._is_dirty is True
+    assert note_payload["tags"] == ["安全 项目"]
+    assert "search" not in json_str.lower()
+    assert "index" not in json_str.lower()
+    assert "history" not in json_str.lower()
