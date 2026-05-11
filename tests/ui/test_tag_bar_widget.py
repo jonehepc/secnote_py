@@ -30,7 +30,7 @@ def _add_tag(widget, text, *, press_return=True):
     input_widget = widget.findChild(QLineEdit)
     input_widget.setFocus()
     input_widget.clear()
-    QTest.keyClicks(input_widget, text)
+    input_widget.setText(text)
     if press_return:
         QTest.keyClick(input_widget, Qt.Key_Return)
     else:
@@ -43,6 +43,7 @@ def test_set_tags_displays_chips_and_preserves_order(qapp):
     widget.show()
 
     widget.set_tags(["Python", "安全 笔记"])
+    qapp.processEvents()
 
     assert widget.tags() == ["Python", "安全 笔记"]
     assert "Python" in _visible_label_texts(widget)
