@@ -142,7 +142,7 @@ def test_available_tags_configures_case_insensitive_qcompleter(qapp):
     widget.deleteLater()
 
 
-def test_set_tag_editing_enabled_disables_inputs_and_remove_buttons(qapp):
+def test_set_tag_editing_enabled_disables_inputs_add_button_and_remove_buttons(qapp):
     widget = TagBarWidget()
     widget.set_tags(["Python"])
     widget.set_tag_editing_enabled(False)
