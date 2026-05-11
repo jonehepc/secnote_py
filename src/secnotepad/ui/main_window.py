@@ -1058,6 +1058,63 @@ class MainWindow(QMainWindow):
         """重置当前富文本编辑器显示缩放，不修改页面内容。"""
         self._rich_text_editor.reset_zoom()
 
+    def _find_item_source_index(self, target: SNoteItem) -> QModelIndex:
+        """Return the source model index for target using object identity."""
+        if self._tree_model is None or self._root_item is None:
+            return QModelIndex()
+
+        def visit(parent_item: SNoteItem, parent_index: QModelIndex) -> QModelIndex:
+            for row, child in enumerate(parent_item.children):
+                child_index = self._tree_model.index(row, 0, parent_index)
+                if child is target:
+                    return child_index
+                found = visit(child, child_index)
+                if found.isValid():
+                    return found
+            return QModelIndex()
+
+        return visit(self._root_item, QModelIndex())
+
+    def _find_parent_item(self, target: SNoteItem) -> SNoteItem | None:
+        """Return target's parent from the current tree using object identity."""
+        if self._root_item is None:
+            return None
+        return TreeModel._find_parent(self._root_item, target)
+
+    def _select_note(self, note: SNoteItem) -> bool:
+        """Select a note's containing section and page list row without marking dirty."""
+        if note is None or self._section_filter is None or self._page_list_model is None:
+            return False
+        parent_section = self._find_parent_item(note)
+        if parent_section is None or parent_section.item_type != "section":
+            return False
+        section_source_index = self._find_item_source_index(parent_section)
+        if not section_source_index.isValid():
+            return False
+        section_proxy_index = self._section_filter.mapFromSource(section_source_index)
+        if not section_proxy_index.isValid():
+            return False
+
+        self._tree_view.expand(section_proxy_index)
+        self._tree_view.setCurrentIndex(section_proxy_index)
+        self._on_tree_current_changed(section_proxy_index, QModelIndex())
+
+        for row in range(self._page_list_model.rowCount()):
+            page_index = self._page_list_model.index(row, 0)
+            if self._page_list_model.note_at(page_index) is note:
+                self._list_view.setCurrentIndex(page_index)
+                self._list_view.scrollTo(page_index)
+                self._on_page_current_changed(page_index, QModelIndex())
+                return True
+        return False
+
+    def _select_search_result(self, result: SearchResult) -> None:
+        """Navigate to an activated search result and keep search state read-only."""
+        if self._select_note(result.note):
+            self.statusBar().showMessage(f"已跳转到：{result.title}")
+        else:
+            self.statusBar().showMessage("搜索结果对应页面不存在")
+
     def _update_search_dialog_root(self):
         """Keep the modeless search dialog bound to the current notebook root."""
         if self._search_dialog is not None:
@@ -1069,8 +1126,7 @@ class MainWindow(QMainWindow):
             return
         if self._search_dialog is None:
             self._search_dialog = SearchDialog(self)
-            if hasattr(self, "_select_search_result"):
-                self._search_dialog.result_activated.connect(self._select_search_result)
+            self._search_dialog.result_activated.connect(self._select_search_result)
         self._search_dialog.set_root_item(self._root_item)
         self._search_dialog.show()
         self._search_dialog.raise_()
