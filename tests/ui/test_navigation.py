@@ -832,3 +832,30 @@ class TestNavigationCRUD:
 
         assert captured["texts"] == ["新建页面"]
 
+    def test_switching_pages_clears_undo_stack_and_does_not_mark_dirty(self, window_with_notebook):
+        """切换页面后 undo 不恢复上一页明文，且不会误置脏。"""
+        window_with_notebook._on_new_root_section()
+        window_with_notebook._on_new_page()
+        first_index = window_with_notebook._list_view.currentIndex()
+        first_note = window_with_notebook._page_list_model.note_at(first_index)
+        first_note.content = "<p>第一页保密内容</p>"
+        window_with_notebook._show_note_in_editor(first_note)
+        editor = window_with_notebook._rich_text_editor.editor()
+        editor.setFocus()
+        editor.selectAll()
+        editor.insertPlainText("第一页已编辑明文")
+        assert "第一页已编辑明文" in first_note.content
+
+        window_with_notebook._on_new_page()
+        second_index = window_with_notebook._list_view.currentIndex()
+        second_note = window_with_notebook._page_list_model.note_at(second_index)
+        second_note.content = "<p>第二页内容</p>"
+        window_with_notebook._is_dirty = False
+
+        window_with_notebook._show_note_in_editor(second_note)
+        window_with_notebook._rich_text_editor.action_undo.trigger()
+
+        assert "第一页已编辑明文" not in window_with_notebook._rich_text_editor.editor().toPlainText()
+        assert "第一页已编辑明文" not in second_note.content
+        assert window_with_notebook._is_dirty is False
+
