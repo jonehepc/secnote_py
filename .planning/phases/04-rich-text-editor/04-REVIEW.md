@@ -16,7 +16,7 @@ findings:
   warning: 0
   info: 0
   total: 2
-status: issues_found
+status: fixed
 ---
 
 # Phase 04: Code Review Report
@@ -29,6 +29,10 @@ status: issues_found
 ## Summary
 
 审查了 Phase 04 富文本编辑器相关实现与测试文件。发现 2 个必须修复的 BLOCKER：一个会导致在光标处设置格式后后续输入不生效，另一个会导致待办列表命令在无选区时误修改下一段内容。两者均属于用户可直接触发的正文编辑错误，可能污染笔记内容。
+
+## Fix Status
+
+已在 `d7dcea1` 修复两个 Critical 问题，并补充回归测试。验证命令：`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q --tb=short`，结果：375 passed。
 
 ## Critical Issues
 
