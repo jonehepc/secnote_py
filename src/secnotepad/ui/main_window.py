@@ -20,6 +20,8 @@ from ..crypto.file_service import FileService
 from ..model.serializer import Serializer
 from .password_dialog import PasswordDialog, PasswordMode
 from .rich_text_editor import RichTextEditorWidget
+from .search_dialog import SearchDialog
+from ..model.search_service import SearchResult
 from .tag_bar_widget import TagBarWidget
 
 
@@ -55,7 +57,9 @@ class MainWindow(QMainWindow):
         self._page_selection = None
         self._act_delete: QAction | None = None
         self._act_rename: QAction | None = None
+        self._act_search: QAction | None = None
         self._shortcut_ctrl_n: QShortcut | None = None
+        self._search_dialog: SearchDialog | None = None
         self._data_changed_models = []
 
         # ── 文件操作状态 (Phase 2) ──
@@ -143,6 +147,11 @@ class MainWindow(QMainWindow):
         for act in self._edit_actions:
             act.setEnabled(False)
             edit_menu.addAction(act)
+        edit_menu.addSeparator()
+        self._act_search = QAction("搜索(&F)...", self)
+        self._act_search.setShortcut(QKeySequence("Ctrl+F"))
+        self._act_search.setEnabled(False)
+        edit_menu.addAction(self._act_search)
 
         # ── 视图菜单 ──
         self._view_menu = QMenu("视图(&V)", self)
@@ -925,6 +934,11 @@ class MainWindow(QMainWindow):
 
     def _clear_session(self):
         """清理当前会话的所有敏感数据。"""
+        if self._act_search is not None:
+            self._act_search.setEnabled(False)
+        if self._search_dialog is not None:
+            self._search_dialog.set_root_item(None)
+            self._search_dialog.close()
         self._current_password = ""
         self._is_dirty = False
         self._current_path = ""
@@ -1002,6 +1016,7 @@ class MainWindow(QMainWindow):
         self._tb_saveas.triggered.connect(self._on_save_as)
 
         # Phase 4: 编辑菜单路由到当前富文本编辑器
+        self._act_search.triggered.connect(self._on_search_notes)
         self._act_undo.triggered.connect(self._rich_text_editor.undo)
         self._act_redo.triggered.connect(self._rich_text_editor.redo)
         self._act_cut.triggered.connect(self._rich_text_editor.cut)
@@ -1043,6 +1058,24 @@ class MainWindow(QMainWindow):
         """重置当前富文本编辑器显示缩放，不修改页面内容。"""
         self._rich_text_editor.reset_zoom()
 
+    def _update_search_dialog_root(self):
+        """Keep the modeless search dialog bound to the current notebook root."""
+        if self._search_dialog is not None:
+            self._search_dialog.set_root_item(self._root_item)
+
+    def _on_search_notes(self):
+        """Open the modeless search dialog for the current decrypted notebook."""
+        if self._root_item is None:
+            return
+        if self._search_dialog is None:
+            self._search_dialog = SearchDialog(self)
+            if hasattr(self, "_select_search_result"):
+                self._search_dialog.result_activated.connect(self._select_search_result)
+        self._search_dialog.set_root_item(self._root_item)
+        self._search_dialog.show()
+        self._search_dialog.raise_()
+        self._search_dialog.activateWindow()
+
     def _on_new_notebook(self):
         """新建空白笔记本 (D-14)"""
         if self._root_item is not None and self._is_dirty:
@@ -1078,6 +1111,8 @@ class MainWindow(QMainWindow):
         self._tb_save.setEnabled(True)
         self._act_save_as.setEnabled(True)
         self._tb_saveas.setEnabled(True)
+        self._act_search.setEnabled(True)
+        self._update_search_dialog_root()
         self._update_window_title()
         self.statusBar().showMessage("新建笔记本 - 未保存")
 
