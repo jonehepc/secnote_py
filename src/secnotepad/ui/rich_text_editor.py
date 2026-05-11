@@ -330,8 +330,11 @@ class RichTextEditorWidget(QWidget):
 
     def _merge_char_format(self, fmt: QTextCharFormat) -> None:
         cursor = self._editor.textCursor()
-        self._editor.mergeCurrentCharFormat(fmt)
-        self._editor.setTextCursor(cursor)
+        if cursor.hasSelection():
+            cursor.mergeCharFormat(fmt)
+            self._editor.setTextCursor(cursor)
+        else:
+            self._editor.mergeCurrentCharFormat(fmt)
         self._editor.setFocus()
 
     def _on_bold(self, checked: bool) -> None:
@@ -425,13 +428,15 @@ class RichTextEditorWidget(QWidget):
         try:
             block = doc.findBlock(start)
             end_block = doc.findBlock(end)
-            end_block_number = end_block.blockNumber() if end_block.isValid() else block.blockNumber()
+            if cursor.hasSelection() and end_block.isValid():
+                end_block_number = end_block.blockNumber()
+            else:
+                end_block_number = block.blockNumber()
             while block.isValid() and block.blockNumber() <= end_block_number:
                 if not block.text().startswith("☐ "):
                     block_cursor = QTextCursor(block)
                     block_cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
                     block_cursor.insertText("☐ ")
-                    end_block_number += 1 if block.position() <= end else 0
                 block = block.next()
         finally:
             cursor.endEditBlock()

@@ -61,6 +61,19 @@ def test_character_format_actions(editor_widget):
     assert editor.textCursor().charFormat().fontStrikeOut() is True
 
 
+def test_character_format_without_selection_applies_to_new_text(editor_widget):
+    editor_widget.load_html("")
+    editor = editor_widget.editor()
+    editor.setFocus()
+
+    editor_widget.action_bold.trigger()
+    editor.insertPlainText("bold")
+
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, 4)
+    assert cursor.charFormat().fontWeight() == QFont.Bold
+
+
 def test_font_family_and_size_controls(editor_widget):
     editor_widget.load_html("<p>font me</p>")
     editor = _select_all(editor_widget)
@@ -129,6 +142,19 @@ def test_list_and_checklist_actions(editor_widget):
     assert "☐ " in plain_text
     assert "<input" not in html
     assert "checkbox" not in html
+
+
+def test_todo_action_without_selection_only_updates_current_block(editor_widget):
+    editor_widget.load_html("<p>first</p><p>second</p>")
+    editor = editor_widget.editor()
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.Start)
+    editor.setTextCursor(cursor)
+
+    editor_widget.action_todo_list.trigger()
+
+    lines = editor.toPlainText().splitlines()
+    assert lines == ["☐ first", "second"]
 
 
 def test_heading_levels(editor_widget):
