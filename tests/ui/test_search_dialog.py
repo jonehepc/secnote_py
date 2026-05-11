@@ -146,6 +146,7 @@ def test_result_activation_emits_payload_and_keeps_dialog_open(qapp):
 
 
 def test_set_text_does_not_trigger_realtime_search(qapp):
+    """设置文本不应触发实时搜索；只能由回车或搜索按钮触发。"""
     service = CountingSearchService()
     dialog = SearchDialog(search_service=service)
     try:
