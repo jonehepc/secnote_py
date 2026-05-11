@@ -22,6 +22,7 @@ def window_with_page(qapp):
     w._is_dirty = False
     w.close()
     w.deleteLater()
+    qapp.processEvents()
 
 
 def current_note(window):
@@ -170,6 +171,8 @@ def test_available_tags_refreshes_from_current_notebook_only(window_with_page):
 
     window._is_dirty = False
     window._on_new_notebook()
+    window._on_new_root_section()
+    window._on_new_page()
 
     assert window._collect_available_tags() == []
     assert window._tag_bar.tags() == []
