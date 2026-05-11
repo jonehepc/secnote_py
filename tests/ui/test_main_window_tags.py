@@ -137,6 +137,7 @@ def test_tags_persist_through_serializer_json_roundtrip(window_with_page):
     window = window_with_page
     note = current_note(window)
     note.tags = ["Python", "安全 笔记"]
+    note.content = "<p>正文不包含标签文本</p>"
 
     json_str = Serializer.to_json(window._root_item)
     payload = json.loads(json_str)
@@ -146,7 +147,29 @@ def test_tags_persist_through_serializer_json_roundtrip(window_with_page):
         "Python",
         "安全 笔记",
     ]
+    assert payload["data"]["children"][0]["children"][0]["content"] == (
+        "<p>正文不包含标签文本</p>"
+    )
 
     restored = Serializer.from_json(json_str)
     restored_note = restored.children[0].children[0]
     assert restored_note.tags == ["Python", "安全 笔记"]
+    assert restored_note.content == "<p>正文不包含标签文本</p>"
+
+
+def test_available_tags_refreshes_from_current_notebook_only(window_with_page):
+    """补全候选来自当前笔记本，大小写去重并随新笔记本清空。"""
+    window = window_with_page
+    first_note = current_note(window)
+    first_note.tags = ["Python"]
+    window._on_new_page()
+    second_note = current_note(window)
+    second_note.tags = ["python", "安全"]
+
+    assert window._collect_available_tags() == ["Python", "安全"]
+
+    window._is_dirty = False
+    window._on_new_notebook()
+
+    assert window._collect_available_tags() == []
+    assert window._tag_bar.tags() == []
