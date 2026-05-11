@@ -212,6 +212,9 @@ def test_clipboard_actions_and_safe_paste(editor_widget):
     <script>alert(1)</script>
     <span onclick="steal()">x</span>
     <a href="javascript:alert(1)">x</a>
+    <a href="http://example.com/leak">external</a>
+    <a href="https://example.com/leak">external secure</a>
+    <a href="file:///tmp/leak">external file</a>
     """
     clipboard = QApplication.clipboard()
     clipboard.setText("")

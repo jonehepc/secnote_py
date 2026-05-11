@@ -44,6 +44,12 @@ class SafeRichTextEdit(QTextEdit):
             "src='http:",
             'src="https:',
             "src='https:",
+            'href="file:',
+            "href='file:",
+            'href="http:',
+            "href='http:",
+            'href="https:',
+            "href='https:",
             '<script',
             'javascript:',
         )
