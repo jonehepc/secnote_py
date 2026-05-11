@@ -232,7 +232,7 @@ def _visible_label_texts(dialog: SearchDialog) -> list[str]:
     return [
         label.text()
         for label in dialog.findChildren(QLabel)
-        if label.isVisible() and label.text() in {
+        if not label.isHidden() and label.text() in {
             "请输入关键词后搜索",
             "未找到匹配结果",
             "请尝试更换关键词，或勾选更多搜索范围。",
