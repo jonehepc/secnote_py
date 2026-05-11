@@ -73,7 +73,10 @@ def _iter_notes_with_paths(root: SNoteItem) -> Iterator[tuple[SNoteItem, str]]:
     yield from _walk_children(root.children, root_path)
 
 
-def _walk_children(children: list[SNoteItem], section_path: list[str]) -> Iterator[tuple[SNoteItem, str]]:
+def _walk_children(
+    children: list[SNoteItem],
+    section_path: list[str],
+) -> Iterator[tuple[SNoteItem, str]]:
     for item in children:
         if item.item_type == "section":
             next_path = [*section_path, item.title] if item.title else section_path
