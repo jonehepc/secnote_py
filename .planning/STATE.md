@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: ready_to_plan
-stopped_at: Phase 05 complete, ready to plan Phase 06
-last_updated: "2026-05-12T03:34:22Z"
+stopped_at: Phase 05 shipped — PR #6; ready to plan Phase 06
+last_updated: "2026-05-12T03:47:23.059Z"
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 26
-  completed_plans: 26
+  completed_plans: 29
   percent: 100
 ---
 
@@ -40,6 +40,7 @@ progress:
 
 ## 最近活动
 
+- 2026-05-12：Phase 5 标签与搜索已 ship，PR #6：https://github.com/jonehepc/secnote_py/pull/6。
 - 2026-05-12：Phase 5 标签与搜索完成，6/6 计划执行完毕，UAT 9/9 通过，安全审查 threats_open=0。
 - 2026-05-11：Phase 4 富文本编辑器完成，7/7 计划执行完毕，UAT 8/8 通过，安全审查 threats_open=0。
 - 2026-05-09：Phase 3 导航系统完成，6/6 计划执行完毕，UAT 与安全审计通过。
