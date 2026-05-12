@@ -117,6 +117,49 @@ class TestSearchService:
         assert "<script>" not in snippet
         assert "<b>" not in snippet
 
+    def test_tags_only_search_matches_chinese_space_tag_without_content_or_title(self):
+        """只勾选标签字段时可命中中文/空格标签，且不误用标题或正文。"""
+        root = SNoteItem.new_section("根分区")
+        section = SNoteItem.new_section("项目")
+        target = SNoteItem.new_note("无关标题", "<p>无关正文</p>")
+        target.tags = ["安全 项目"]
+        decoy = SNoteItem.new_note("安全标题", "<p>安全正文</p>")
+        section.children.extend([target, decoy])
+        root.children.append(section)
+
+        results = SearchService.search(
+            root,
+            "安全",
+            SearchFields(title=False, content=False, tags=True),
+        )
+
+        assert [result.note for result in results] == [target]
+        assert results[0].matched_field == "tags"
+        assert results[0].section_path == "根分区 / 项目"
+        assert results[0].snippet == "<mark>安全</mark> 项目"
+
+    def test_html_script_style_and_event_text_are_plain_text_before_highlight(self):
+        """HTML/脚本样式正文片段仅保留纯文本与受控 <mark>，不展示原始危险属性。"""
+        root = SNoteItem.new_section("根分区")
+        note = SNoteItem.new_note(
+            "HTML 安全",
+            (
+                '<p style="color:red" onclick="steal()">alpha keyword</p>'
+                '<script>alert("secret")</script>'
+            ),
+        )
+        root.children.append(note)
+
+        results = SearchService.search(root, "keyword", SearchFields(title=False, content=True))
+
+        assert len(results) == 1
+        snippet = results[0].snippet
+        assert "alpha <mark>keyword</mark>" in snippet
+        assert "<script>" not in snippet
+        assert "script" not in snippet
+        assert "style=" not in snippet
+        assert "onclick" not in snippet
+
 
 def _sample_tree() -> tuple[SNoteItem, dict[str, SNoteItem]]:
     """构造含根分区、嵌套分区、多个 note、HTML content 和 tags 的样例树。"""

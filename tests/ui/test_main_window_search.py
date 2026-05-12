@@ -1,10 +1,13 @@
 """MainWindow search entry and result navigation integration tests."""
 
+import json
+
 from PySide6.QtCore import QModelIndex
 from PySide6.QtGui import QKeySequence
 import pytest
 
-from src.secnotepad.model.search_service import SearchResult
+from src.secnotepad.model.search_service import SearchFields, SearchResult, SearchService
+from src.secnotepad.model.serializer import Serializer
 from src.secnotepad.model.snote_item import SNoteItem
 from src.secnotepad.ui.main_window import MainWindow
 from src.secnotepad.ui.search_dialog import SearchDialog
@@ -92,6 +95,38 @@ def test_select_search_result_syncs_tree_list_editor_and_keeps_dialog_open(windo
     assert window.statusBar().currentMessage() == "已跳转到：目标页面"
     assert window._is_dirty is False
     assert window._search_dialog.isVisible() is True
+
+
+def test_tags_only_search_result_navigation_does_not_create_search_persistence(window_with_search_tree):
+    """标签搜索命中可跳转，搜索/跳转不置脏且序列化不出现索引或历史字段。"""
+    window, _first_section, _nested_section, first_note, target_note = window_with_search_tree
+    target_note.tags = ["安全 项目"]
+    target_note.content = "<p>正文不含查询词</p>"
+    first_note.tags = ["普通"]
+    window._is_dirty = False
+
+    before_payload = json.loads(Serializer.to_json(window._root_item))
+    results = SearchService.search(
+        window._root_item,
+        "安全",
+        SearchFields(title=False, content=False, tags=True),
+    )
+    assert [result.note for result in results] == [target_note]
+
+    window._act_search.trigger()
+    window._select_search_result(results[0])
+
+    after_payload = json.loads(Serializer.to_json(window._root_item))
+    serialized = Serializer.to_json(window._root_item)
+    assert _current_page_item(window) is target_note
+    assert window._search_dialog.isVisible() is True
+    assert window.statusBar().currentMessage() == "已跳转到：目标页面"
+    assert window._is_dirty is False
+    assert before_payload == after_payload
+    assert "tags" in serialized
+    assert "search" not in serialized.lower()
+    assert "index" not in serialized.lower()
+    assert "history" not in serialized.lower()
 
 
 def test_search_result_activation_signal_keeps_dialog_visible(window_with_search_tree):
