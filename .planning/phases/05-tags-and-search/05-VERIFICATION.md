@@ -1,21 +1,24 @@
 ---
 phase: 05-tags-and-search
 verified: 2026-05-12T01:20:10Z
-status: human_needed
+status: passed
 score: 18/18 must-haves verified
 overrides_applied: 0
 human_verification:
   - test: "真实桌面环境检查标签栏、搜索弹窗、结果跳转与 dirty 标记"
     expected: "标签栏位于右侧编辑区顶部；Ctrl+F/编辑菜单可打开 modeless 搜索弹窗；点击结果同步选中分区和页面且弹窗保持打开；纯搜索/跳转不产生未保存标记"
-    why_human: "视觉布局、桌面快捷键焦点、弹窗置顶/保持打开体验和真实窗口 dirty 标记观感需要人眼确认"
+    result: passed
+    verified_by: user
+    verified_at: 2026-05-12
+    note: "用户复测确认搜索菜单可用并回复 approved。"
 ---
 
 # Phase 5: 标签与搜索 Verification Report
 
 **Phase Goal:** tags-and-search（ROADMAP：实现页面标签管理和全文搜索功能）  
 **Verified:** 2026-05-12T01:20:10Z  
-**Status:** human_needed  
-**Re-verification:** 否 — initial verification
+**Status:** passed  
+**Re-verification:** 是 — 人工桌面验证通过
 
 ## Goal Achievement
 
@@ -42,7 +45,7 @@ human_verification:
 | 17 | D-95/D-96：点击搜索结果选中对应分区和页面，并加载右侧编辑器；弹窗保持打开 | VERIFIED | `_select_note()` 使用对象引用和 `mapFromSource` 选择分区/页面并调用 `_on_page_current_changed()`：`main_window.py:1083-1108`；`_select_search_result()` 不关闭 dialog：`main_window.py:1110-1115`；测试断言 dialog visible。 |
 | 18 | 安全边界：不创建外部索引、数据库、缓存文件或明文搜索历史；搜索/跳转不置脏 | VERIFIED | 安全 grep gate 无输出；`SearchService` 无 `open/Path/sqlite/QSettings/logging/print`；`SearchDialog` 不读取 `note.content` 展示；`TagBarWidget` 不调用 `mark_dirty`。目标测试和全套测试均通过。 |
 
-**Score:** 18/18 truths verified（自动化与代码级验证通过；仍需人工桌面验证）
+**Score:** 18/18 truths verified（自动化、代码级验证与人工桌面验证均通过）
 
 ### Required Artifacts
 
@@ -114,19 +117,17 @@ human_verification:
 
 未发现 blocker 级 `TODO/FIXME`、占位实现、console/logging 泄漏、硬编码空数据流或搜索持久化反模式。
 
-### Human Verification Required
+### Human Verification
 
 #### 1. 真实桌面标签与搜索交互
 
 **Test:** 在图形桌面运行应用，创建/打开笔记本，添加/移除标签，使用编辑菜单或 `Ctrl+F` 打开搜索弹窗，搜索标题/正文/标签，点击多个结果。  
 **Expected:** 标签栏位于右侧编辑区顶部；标签 chip 可见且可移除；搜索弹窗 modeless 并保持打开；结果包含标题/路径/高亮片段；点击结果同步选中分区、页面和右侧编辑器；纯搜索/跳转不产生未保存 `*`。  
-**Why human:** 自动化已验证代码路径和 offscreen Qt 行为，但真实桌面视觉布局、焦点、快捷键分发、弹窗保持打开体验和 dirty 标记观感仍需人工确认。
+**Result:** passed — 用户复测后回复 `approved`。
 
 ### Gaps Summary
 
-未发现阻塞 Phase 05 goal achievement 的代码级 gap。所有 PLAN frontmatter must_haves、ROADMAP Phase 5 成功标准和 REQUIREMENTS.md 中 Phase 5 需求均有实际代码、 wiring、数据流和测试证据支持。
-
-状态为 `human_needed` 的唯一原因是计划 05-06 明确包含 blocking human verification checkpoint，且视觉/真实桌面交互无法仅通过 grep 与 offscreen 测试完全证明。
+未发现阻塞 Phase 05 goal achievement 的代码级 gap。所有 PLAN frontmatter must_haves、ROADMAP Phase 5 成功标准和 REQUIREMENTS.md 中 Phase 5 需求均有实际代码、 wiring、数据流、测试证据和人工桌面验证支持。
 
 ---
 
