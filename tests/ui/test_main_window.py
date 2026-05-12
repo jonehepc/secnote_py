@@ -502,8 +502,9 @@ class TestRichTextIntegration:
 
     def test_editor_menu_actions_route_to_rich_text_editor(self, window):
         note = self._new_page(window)
-        edit_texts = self._menu_action_texts(window, "编辑")
-        assert edit_texts == ["撤销(&U)", "重做(&R)", "剪切(&T)", "复制(&C)", "粘贴(&P)"]
+        edit_texts = [text for text in self._menu_action_texts(window, "编辑") if text]
+        assert edit_texts[:5] == ["撤销(&U)", "重做(&R)", "剪切(&T)", "复制(&C)", "粘贴(&P)"]
+        assert "搜索(&F)..." in edit_texts
 
         undo_action, redo_action, cut_action, copy_action, paste_action = window._edit_actions
         assert paste_action.isEnabled() is True

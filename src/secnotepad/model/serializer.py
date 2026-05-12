@@ -65,13 +65,16 @@ class Serializer:
     def _from_dict(d: dict) -> SNoteItem:
         """递归反序列化 dict → SNoteItem。"""
         children = [Serializer._from_dict(c) for c in d.get("children", [])]
+        tags = d.get("tags", [])
+        if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
+            raise ValueError("SNoteItem field 'tags' must be a list of strings")
         return SNoteItem(
             id=d["id"],
             title=d["title"],
             item_type=d["item_type"],
             content=d.get("content", ""),
             children=children,
-            tags=d.get("tags", []),
+            tags=tags,
             created_at=d.get("created_at", ""),
             updated_at=d.get("updated_at", ""),
         )

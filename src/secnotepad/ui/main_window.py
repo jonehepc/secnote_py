@@ -20,6 +20,9 @@ from ..crypto.file_service import FileService
 from ..model.serializer import Serializer
 from .password_dialog import PasswordDialog, PasswordMode
 from .rich_text_editor import RichTextEditorWidget
+from .search_dialog import SearchDialog
+from ..model.search_service import SearchResult
+from .tag_bar_widget import TagBarWidget
 
 
 class MainWindow(QMainWindow):
@@ -40,6 +43,7 @@ class MainWindow(QMainWindow):
         self._rich_text_editor: RichTextEditorWidget = None
         self._editor_preview: QTextEdit = None
         self._format_toolbar = None
+        self._tag_bar: TagBarWidget | None = None
         self._editor_container: QWidget = None
         self._editor_stack: QStackedWidget = None
         self._editor_placeholder_label: QLabel = None
@@ -53,7 +57,9 @@ class MainWindow(QMainWindow):
         self._page_selection = None
         self._act_delete: QAction | None = None
         self._act_rename: QAction | None = None
+        self._act_search: QAction | None = None
         self._shortcut_ctrl_n: QShortcut | None = None
+        self._search_dialog: SearchDialog | None = None
         self._data_changed_models = []
 
         # ── 文件操作状态 (Phase 2) ──
@@ -141,6 +147,11 @@ class MainWindow(QMainWindow):
         for act in self._edit_actions:
             act.setEnabled(False)
             edit_menu.addAction(act)
+        edit_menu.addSeparator()
+        self._act_search = QAction("搜索(&F)...", self)
+        self._act_search.setShortcut(QKeySequence("Ctrl+F"))
+        self._act_search.setEnabled(False)
+        edit_menu.addAction(self._act_search)
 
         # ── 视图菜单 ──
         self._view_menu = QMenu("视图(&V)", self)
@@ -288,6 +299,12 @@ class MainWindow(QMainWindow):
         self._editor_preview = self._rich_text_editor.editor()
         self._format_toolbar = self._rich_text_editor.format_toolbar()
         self._format_toolbar.setParent(self._editor_container)
+
+        self._tag_bar = TagBarWidget(self._editor_container)
+        self._tag_bar.tag_added.connect(self._on_tag_added)
+        self._tag_bar.tag_removed.connect(self._on_tag_removed)
+        self._tag_bar.set_tag_editing_enabled(False)
+        editor_layout.addWidget(self._tag_bar)
         editor_layout.addWidget(self._format_toolbar)
         self._rich_text_editor.layout().removeWidget(self._format_toolbar)
         self._rich_text_editor.set_editor_enabled(False)
@@ -491,11 +508,47 @@ class MainWindow(QMainWindow):
         else:
             self._show_editor_placeholder()
 
+    def _current_note(self) -> SNoteItem | None:
+        """Return the note currently selected in the page list."""
+        if self._page_list_model is None:
+            return None
+        return self._page_list_model.note_at(self._list_view.currentIndex())
+
+    def _iter_notes(self, item: SNoteItem | None):
+        """Yield note nodes from the current notebook tree in natural order."""
+        if item is None:
+            return
+        if item.item_type == "note":
+            yield item
+        for child in item.children:
+            yield from self._iter_notes(child)
+
+    def _collect_available_tags(self) -> list[str]:
+        """Collect current notebook tags for completion, casefold de-duped."""
+        seen: set[str] = set()
+        available: list[str] = []
+        for note in self._iter_notes(self._root_item):
+            for tag in note.tags:
+                key = tag.casefold()
+                if key not in seen:
+                    seen.add(key)
+                    available.append(tag)
+        return available
+
+    def _refresh_tag_bar(self, note: SNoteItem | None, enabled: bool) -> None:
+        """Refresh tag chips and completion candidates from current state."""
+        if self._tag_bar is None:
+            return
+        self._tag_bar.set_tags(list(note.tags) if note is not None else [])
+        self._tag_bar.set_available_tags(self._collect_available_tags())
+        self._tag_bar.set_tag_editing_enabled(enabled)
+
     def _show_editor_placeholder(self):
         """显示 placeholder 提示文字 (D-63)，不写回当前页面。"""
         self._editor_stack.setCurrentIndex(1)
         self._rich_text_editor.load_html("")
         self._rich_text_editor.set_editor_enabled(False)
+        self._refresh_tag_bar(None, False)
         self._update_edit_action_states()
 
     def _on_editor_text_changed(self):
@@ -521,7 +574,40 @@ class MainWindow(QMainWindow):
         self._rich_text_editor.load_html(note.content or "")
         self._editor_stack.setCurrentIndex(0)
         self._rich_text_editor.set_editor_enabled(True)
+        self._refresh_tag_bar(note, True)
         self._update_edit_action_states()
+
+    def _on_tag_added(self, tag: str) -> None:
+        """Add a validated tag to the current note and mark notebook dirty."""
+        note = self._current_note()
+        if note is None:
+            return
+        normalized = tag.strip()
+        if not normalized or len(normalized) > 32:
+            return
+        if normalized.casefold() in {existing.casefold() for existing in note.tags}:
+            self._refresh_tag_bar(note, True)
+            return
+
+        note.tags.append(normalized)
+        self._refresh_tag_bar(note, True)
+        self.mark_dirty()
+        self.statusBar().showMessage(f"已添加标签：{normalized}")
+
+    def _on_tag_removed(self, tag: str) -> None:
+        """Remove the first exact tag match from the current note and mark dirty."""
+        note = self._current_note()
+        if note is None:
+            return
+        try:
+            note.tags.remove(tag)
+        except ValueError:
+            self._refresh_tag_bar(note, True)
+            return
+
+        self._refresh_tag_bar(note, True)
+        self.mark_dirty()
+        self.statusBar().showMessage(f"已移除标签：{tag}")
 
     def _update_edit_action_states(self):
         """按当前页面和富文本编辑器文档状态更新编辑菜单。"""
@@ -848,6 +934,11 @@ class MainWindow(QMainWindow):
 
     def _clear_session(self):
         """清理当前会话的所有敏感数据。"""
+        if self._act_search is not None:
+            self._act_search.setEnabled(False)
+        if self._search_dialog is not None:
+            self._search_dialog.set_root_item(None)
+            self._search_dialog.close()
         self._current_password = ""
         self._is_dirty = False
         self._current_path = ""
@@ -925,6 +1016,7 @@ class MainWindow(QMainWindow):
         self._tb_saveas.triggered.connect(self._on_save_as)
 
         # Phase 4: 编辑菜单路由到当前富文本编辑器
+        self._act_search.triggered.connect(self._on_search_notes)
         self._act_undo.triggered.connect(self._rich_text_editor.undo)
         self._act_redo.triggered.connect(self._rich_text_editor.redo)
         self._act_cut.triggered.connect(self._rich_text_editor.cut)
@@ -966,6 +1058,80 @@ class MainWindow(QMainWindow):
         """重置当前富文本编辑器显示缩放，不修改页面内容。"""
         self._rich_text_editor.reset_zoom()
 
+    def _find_item_source_index(self, target: SNoteItem) -> QModelIndex:
+        """Return the source model index for target using object identity."""
+        if self._tree_model is None or self._root_item is None:
+            return QModelIndex()
+
+        def visit(parent_item: SNoteItem, parent_index: QModelIndex) -> QModelIndex:
+            for row, child in enumerate(parent_item.children):
+                child_index = self._tree_model.index(row, 0, parent_index)
+                if child is target:
+                    return child_index
+                found = visit(child, child_index)
+                if found.isValid():
+                    return found
+            return QModelIndex()
+
+        return visit(self._root_item, QModelIndex())
+
+    def _find_parent_item(self, target: SNoteItem) -> SNoteItem | None:
+        """Return target's parent from the current tree using object identity."""
+        if self._root_item is None:
+            return None
+        return TreeModel._find_parent(self._root_item, target)
+
+    def _select_note(self, note: SNoteItem) -> bool:
+        """Select a note's containing section and page list row without marking dirty."""
+        if note is None or self._section_filter is None or self._page_list_model is None:
+            return False
+        parent_section = self._find_parent_item(note)
+        if parent_section is None or parent_section.item_type != "section":
+            return False
+        section_source_index = self._find_item_source_index(parent_section)
+        if not section_source_index.isValid():
+            return False
+        section_proxy_index = self._section_filter.mapFromSource(section_source_index)
+        if not section_proxy_index.isValid():
+            return False
+
+        self._tree_view.expand(section_proxy_index)
+        self._tree_view.setCurrentIndex(section_proxy_index)
+        self._on_tree_current_changed(section_proxy_index, QModelIndex())
+
+        for row in range(self._page_list_model.rowCount()):
+            page_index = self._page_list_model.index(row, 0)
+            if self._page_list_model.note_at(page_index) is note:
+                self._list_view.setCurrentIndex(page_index)
+                self._list_view.scrollTo(page_index)
+                self._on_page_current_changed(page_index, QModelIndex())
+                return True
+        return False
+
+    def _select_search_result(self, result: SearchResult) -> None:
+        """Navigate to an activated search result and keep search state read-only."""
+        if self._select_note(result.note):
+            self.statusBar().showMessage(f"已跳转到：{result.title}")
+        else:
+            self.statusBar().showMessage("搜索结果对应页面不存在")
+
+    def _update_search_dialog_root(self):
+        """Keep the modeless search dialog bound to the current notebook root."""
+        if self._search_dialog is not None:
+            self._search_dialog.set_root_item(self._root_item)
+
+    def _on_search_notes(self):
+        """Open the modeless search dialog for the current decrypted notebook."""
+        if self._root_item is None:
+            return
+        if self._search_dialog is None:
+            self._search_dialog = SearchDialog(self)
+            self._search_dialog.result_activated.connect(self._select_search_result)
+        self._search_dialog.set_root_item(self._root_item)
+        self._search_dialog.show()
+        self._search_dialog.raise_()
+        self._search_dialog.activateWindow()
+
     def _on_new_notebook(self):
         """新建空白笔记本 (D-14)"""
         if self._root_item is not None and self._is_dirty:
@@ -1001,6 +1167,8 @@ class MainWindow(QMainWindow):
         self._tb_save.setEnabled(True)
         self._act_save_as.setEnabled(True)
         self._tb_saveas.setEnabled(True)
+        self._act_search.setEnabled(True)
+        self._update_search_dialog_root()
         self._update_window_title()
         self.statusBar().showMessage("新建笔记本 - 未保存")
 
@@ -1049,6 +1217,8 @@ class MainWindow(QMainWindow):
         self._tb_save.setEnabled(True)
         self._act_save_as.setEnabled(True)
         self._tb_saveas.setEnabled(True)
+        self._act_search.setEnabled(True)
+        self._update_search_dialog_root()
 
         self._stack.setCurrentIndex(1)
         self._update_window_title()
@@ -1261,6 +1431,8 @@ class MainWindow(QMainWindow):
         self._tb_save.setEnabled(True)
         self._act_save_as.setEnabled(True)
         self._tb_saveas.setEnabled(True)
+        self._act_search.setEnabled(True)
+        self._update_search_dialog_root()
 
         self._stack.setCurrentIndex(1)
         self._update_window_title()
