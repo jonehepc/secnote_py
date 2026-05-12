@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: "Phase 04 shipped — PR #5"
+status: ready_to_plan
 stopped_at: Phase 5 UI-SPEC approved
 last_updated: "2026-05-11T09:55:10.915Z"
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 26
   completed_plans: 23
-  percent: 88
+  percent: 83
 ---
 
 # 项目状态
