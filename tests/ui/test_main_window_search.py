@@ -6,6 +6,7 @@ from PySide6.QtCore import QModelIndex
 from PySide6.QtGui import QKeySequence
 import pytest
 
+from src.secnotepad.crypto.file_service import FileService
 from src.secnotepad.model.search_service import SearchFields, SearchResult, SearchService
 from src.secnotepad.model.serializer import Serializer
 from src.secnotepad.model.snote_item import SNoteItem
@@ -73,6 +74,38 @@ def test_search_action_opens_modeless_dialog_with_current_root(window_with_searc
     assert window._search_dialog.isVisible() is True
     assert window._search_dialog._root_item is window._root_item
     assert window._is_dirty is False
+
+
+def test_search_action_enabled_after_opening_saved_notebook(qapp, tmp_path, monkeypatch):
+    root = SNoteItem.new_section("根分区")
+    root.children.append(SNoteItem.new_section("项目"))
+    path = tmp_path / "search-enabled.secnote"
+    FileService.save(Serializer.to_json(root), str(path), "secret")
+
+    window = MainWindow()
+    monkeypatch.setattr(
+        "src.secnotepad.ui.main_window.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: (str(path), "SecNotepad 加密笔记本 (*.secnote)"),
+    )
+    monkeypatch.setattr(
+        window,
+        "_open_with_password_retry",
+        lambda opened_path: (FileService.open(opened_path, "secret"), "secret"),
+    )
+    try:
+        assert window._act_search.isEnabled() is False
+
+        window._on_open_notebook()
+
+        assert window._act_search.isEnabled() is True
+        window._act_search.trigger()
+        assert isinstance(window._search_dialog, SearchDialog)
+        assert window._search_dialog._root_item is window._root_item
+    finally:
+        if window._search_dialog is not None:
+            window._search_dialog.close()
+        window.close()
+        window.deleteLater()
 
 
 def test_select_search_result_syncs_tree_list_editor_and_keeps_dialog_open(window_with_search_tree):

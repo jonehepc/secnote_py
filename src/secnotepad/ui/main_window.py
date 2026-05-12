@@ -1217,6 +1217,8 @@ class MainWindow(QMainWindow):
         self._tb_save.setEnabled(True)
         self._act_save_as.setEnabled(True)
         self._tb_saveas.setEnabled(True)
+        self._act_search.setEnabled(True)
+        self._update_search_dialog_root()
 
         self._stack.setCurrentIndex(1)
         self._update_window_title()
@@ -1429,6 +1431,8 @@ class MainWindow(QMainWindow):
         self._tb_save.setEnabled(True)
         self._act_save_as.setEnabled(True)
         self._tb_saveas.setEnabled(True)
+        self._act_search.setEnabled(True)
+        self._update_search_dialog_root()
 
         self._stack.setCurrentIndex(1)
         self._update_window_title()
