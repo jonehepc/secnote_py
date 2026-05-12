@@ -1,5 +1,7 @@
 """Reusable tag chip bar widget for SecNotepad Phase 05."""
 
+import html
+
 from PySide6.QtCore import QMargins, QPoint, QRect, QSize, Qt, Signal, QStringListModel
 from PySide6.QtWidgets import (QCompleter, QFrame, QHBoxLayout, QLabel, QLayout,
                                 QLayoutItem, QLineEdit, QPushButton, QSizePolicy,
@@ -198,12 +200,13 @@ class TagBarWidget(QWidget):
         layout.setSpacing(4)
 
         label = QLabel(tag, chip)
+        label.setTextFormat(Qt.PlainText)
         label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         layout.addWidget(label)
 
         remove_button = QToolButton(chip)
         remove_button.setText("×")
-        remove_button.setToolTip(f"移除标签：{tag}")
+        remove_button.setToolTip(f"移除标签：{html.escape(tag)}")
         remove_button.setMinimumSize(20, 20)
         remove_button.setEnabled(self._editing_enabled)
         remove_button.clicked.connect(lambda _checked=False, value=tag: self.tag_removed.emit(value))

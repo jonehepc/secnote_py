@@ -160,6 +160,17 @@ class TestSearchService:
         assert "style=" not in snippet
         assert "onclick" not in snippet
 
+    def test_casefold_match_and_highlight_share_unicode_semantics(self):
+        """Unicode casefold 命中时 snippet 同样高亮原文 span。"""
+        root = SNoteItem.new_section("根分区")
+        note = SNoteItem.new_note("Straße")
+        root.children.append(note)
+
+        results = SearchService.search(root, "STRASSE", SearchFields(title=True, content=False))
+
+        assert len(results) == 1
+        assert results[0].snippet == "<mark>Straße</mark>"
+
 
 def _sample_tree() -> tuple[SNoteItem, dict[str, SNoteItem]]:
     """构造含根分区、嵌套分区、多个 note、HTML content 和 tags 的样例树。"""

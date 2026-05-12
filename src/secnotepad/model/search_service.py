@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import html
-import re
 from collections.abc import Iterator
 
 from PySide6.QtGui import QTextDocumentFragment
 
-from src.secnotepad.model.snote_item import SNoteItem
+from .snote_item import SNoteItem
 
 
 @dataclass(frozen=True)
@@ -114,7 +113,7 @@ def _match_note(
 
     if fields.tags:
         for tag in note.tags:
-            if query_key in tag.casefold():
+            if isinstance(tag, str) and query_key in tag.casefold():
                 return SearchResult(
                     note=note,
                     title=note.title,
@@ -128,7 +127,7 @@ def _match_note(
 
 def _make_snippet(text: str, query: str) -> str:
     """Return escaped text with the literal query wrapped in a controlled mark tag."""
-    start, end = _find_literal_span(text, query)
+    start, end = _find_casefold_span(text, query)
     if start < 0:
         return html.escape(text)
 
@@ -137,25 +136,33 @@ def _make_snippet(text: str, query: str) -> str:
     prefix = "…" if snippet_start > 0 else ""
     suffix = "…" if snippet_end < len(text) else ""
     raw_snippet = text[snippet_start:snippet_end]
+    local_start = start - snippet_start
+    local_end = end - snippet_start
 
-    highlighted = _highlight_literal(raw_snippet, query)
+    highlighted = _highlight_span(raw_snippet, local_start, local_end)
     return f"{prefix}{highlighted}{suffix}"
 
 
-def _find_literal_span(text: str, query: str) -> tuple[int, int]:
-    match = re.search(re.escape(query), text, flags=re.IGNORECASE)
-    if match is None:
+def _find_casefold_span(text: str, query: str) -> tuple[int, int]:
+    folded_query = query.casefold()
+    folded_parts: list[str] = []
+    index_map: list[int] = []
+    for index, char in enumerate(text):
+        folded = char.casefold()
+        folded_parts.append(folded)
+        index_map.extend([index] * len(folded))
+
+    folded_text = "".join(folded_parts)
+    folded_start = folded_text.find(folded_query)
+    if folded_start < 0:
         return -1, -1
-    return match.start(), match.end()
+    folded_end = folded_start + len(folded_query) - 1
+    return index_map[folded_start], index_map[folded_end] + 1
 
 
-def _highlight_literal(text: str, query: str) -> str:
-    pattern = re.compile(re.escape(query), flags=re.IGNORECASE)
-    parts: list[str] = []
-    previous_end = 0
-    for match in pattern.finditer(text):
-        parts.append(html.escape(text[previous_end : match.start()]))
-        parts.append(f"<mark>{html.escape(match.group(0))}</mark>")
-        previous_end = match.end()
-    parts.append(html.escape(text[previous_end:]))
-    return "".join(parts)
+def _highlight_span(text: str, start: int, end: int) -> str:
+    return "".join((
+        html.escape(text[:start]),
+        f"<mark>{html.escape(text[start:end])}</mark>",
+        html.escape(text[end:]),
+    ))

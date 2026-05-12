@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.secnotepad.model.search_service import SearchFields, SearchResult, SearchService
-from src.secnotepad.model.snote_item import SNoteItem
+from ..model.search_service import SearchFields, SearchResult, SearchService
+from ..model.snote_item import SNoteItem
 
 
 class SearchDialog(QDialog):

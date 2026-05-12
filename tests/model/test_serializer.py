@@ -188,6 +188,24 @@ class TestSerializerFromJson:
         assert item.created_at == ""
         assert item.updated_at == ""
 
+    @pytest.mark.parametrize("tags", [None, "bad", ["ok", 123]])
+    def test_from_json_rejects_invalid_tags(self, tags):
+        """tags 必须是字符串列表，坏数据在反序列化边界被拒绝。"""
+        json_str = json.dumps({
+            "version": 1,
+            "data": {
+                "id": "c" * 32,
+                "title": "坏标签",
+                "item_type": "note",
+                "content": "hello",
+                "children": [],
+                "tags": tags,
+            },
+        })
+
+        with pytest.raises(ValueError, match="tags"):
+            Serializer.from_json(json_str)
+
     def test_from_json_missing_content(self):
         """缺少 content 时默认为空字符串."""
         json_str = json.dumps({

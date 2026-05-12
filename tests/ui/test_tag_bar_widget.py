@@ -54,6 +54,16 @@ def test_set_tags_displays_chips_and_preserves_order(qapp):
     widget.deleteLater()
 
 
+def test_tag_chip_renders_user_text_as_plain_text(qapp):
+    widget = TagBarWidget()
+    widget.set_tags(["<b>安全</b>"])
+
+    chip_label = next(label for label in widget.findChildren(QLabel) if label.text() == "<b>安全</b>")
+    assert chip_label.textFormat() == Qt.PlainText
+
+    widget.deleteLater()
+
+
 def test_refresh_methods_do_not_emit_add_or_remove(qapp):
     widget = TagBarWidget()
     added = QSignalSpy(widget.tag_added)
